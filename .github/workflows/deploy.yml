@@ -39,6 +39,16 @@ jobs:
         run: npm run build
         env:
           BASE_PATH: /Byuma-FT-Lite/
+          # Set these under Settings -> Secrets and variables -> Actions.
+          # A Firebase web config is public by design — it ships inside the
+          # page either way — so repository *variables* are the right home
+          # for it; firestore.rules is what actually guards the data.
+          VITE_FB_API_KEY: ${{ vars.VITE_FB_API_KEY }}
+          VITE_FB_AUTH_DOMAIN: ${{ vars.VITE_FB_AUTH_DOMAIN }}
+          VITE_FB_PROJECT_ID: ${{ vars.VITE_FB_PROJECT_ID }}
+          VITE_FB_STORAGE_BUCKET: ${{ vars.VITE_FB_STORAGE_BUCKET }}
+          VITE_FB_SENDER_ID: ${{ vars.VITE_FB_SENDER_ID }}
+          VITE_FB_APP_ID: ${{ vars.VITE_FB_APP_ID }}
       - uses: actions/configure-pages@v5
         if: github.ref == 'refs/heads/main'
       - uses: actions/upload-pages-artifact@v3

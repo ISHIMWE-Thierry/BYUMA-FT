@@ -74,21 +74,28 @@ export interface UserData {
   cleared: boolean
 }
 
+/**
+ * The signed-in person. Firebase owns the account itself — the id is their
+ * Firebase uid and the password never reaches this app — so nothing secret
+ * is kept here.
+ */
 export interface Account {
   id: string
   name: string
   email: string
-  salt: string
-  hash: string
-  iterations: number
   createdAt: number
-  /** Set once this phone has been asked to remember the account. */
+  /**
+   * Set once this phone has been asked to remember the account. A passkey
+   * belongs to one phone, so this is stored on the phone rather than in the
+   * account: another phone must enrol its own.
+   */
   passkeyId?: string
 }
 
 export type Screen =
   | 'signup'
   | 'signin'
+  | 'lock'
   | 'tour'
   | 'home'
   | 'history'

@@ -4,3 +4,4 @@ shots
 *.tsbuildinfo
 *.local
 .DS_Store
+.env

@@ -86,8 +86,6 @@ export function SignUp({ app }: { app: App }) {
 }
 
 export function SignIn({ app }: { app: App }) {
-  const phoneReady = app.canUsePhone && !!app.lastAccount?.passkeyId
-
   return (
     <div className="page-auth">
       <div className="wordmark">
@@ -95,20 +93,7 @@ export function SignIn({ app }: { app: App }) {
       </div>
       <div className="headline-auth">Welcome back.</div>
 
-      {phoneReady && (
-        <>
-          <div className="field-group">
-            <UnlockButton app={app} label={'Unlock as ' + (app.lastAccount?.name || 'you')} />
-          </div>
-          <div className="auth-divider">
-            <span />
-            <span className="auth-divider-word">or</span>
-            <span />
-          </div>
-        </>
-      )}
-
-      <div className={phoneReady ? 'mt-22' : 'field-group'}>
+      <div className="field-group">
         <input
           className="field"
           type="email"
@@ -164,25 +149,36 @@ export function SignIn({ app }: { app: App }) {
 }
 
 /**
- * There is no email server behind this app, so a reset link cannot be sent.
- * What the phone can do is prove it is you: accounts live only on this phone,
- * so passing the same fingerprint, face or PIN that unlocks the phone IS the
- * identity check — no prior setup needed. Only a phone with no screen lock
- * the app can use has nothing to check against, and there the only honest
- * offer left is to start the account over.
+ * There is a mail server behind the app now: Firebase sends the reset link
+ * itself. Type the address, open the link, pick a new password there. The
+ * screen says the same thing whether or not that email has an account, so
+ * it cannot be used to find out who is registered.
  */
 export function Forgot({ app }: { app: App }) {
-  const acc = app.recovering
-  const canProve = app.canUsePhone
-
   return (
     <div className="page">
       <div className="headline-26">Forgot your password?</div>
 
-      {!acc ? (
+      {app.sent ? (
         <>
           <div className="forgot-note">
-            Type the email you signed up with and we will look for it on this phone.
+            If {app.fEmail.trim()} has an account, a link to set a new password
+            is on its way. Open it on this phone and you can sign in again.
+          </div>
+          <button
+            type="button"
+            className="btn-primary mt-22"
+            style={{ background: ACCENT }}
+            onClick={() => app.go('signin')}
+          >
+            Back to sign in
+          </button>
+        </>
+      ) : (
+        <>
+          <div className="forgot-note">
+            Type the email you signed up with and we will send you a link to
+            set a new password.
           </div>
           <div className="field-group">
             <input
@@ -204,93 +200,40 @@ export function Forgot({ app }: { app: App }) {
             type="button"
             className="btn-primary mt-22"
             style={{ background: ACCENT }}
-            onClick={app.findForRecovery}
+            onClick={() => void app.sendReset()}
           >
-            Continue
+            Send the link
           </button>
-        </>
-      ) : !app.recovered ? (
-        <>
-          <div className="forgot-note">
-            {canProve
-              ? acc.passkeyId
-                ? 'Confirm it is you with the same fingerprint, face or PIN that unlocks this phone. Then you can pick a new password.'
-                : 'Your account lives only on this phone, so the phone can vouch for you. Confirm with the same fingerprint, face or PIN that unlocks it, then pick a new password. The phone will remember your account afterwards, so next time you can sign in with one tap.'
-              : 'This phone has no screen lock the app can check, so nothing can prove who you are. Your password cannot be recovered.'}
-          </div>
-
-          {canProve ? (
-            <div className="field-group">
-              <button
-                type="button"
-                className="unlock"
-                onClick={() => void app.proveWithPhone()}
-              >
-                <UnlockIcon />
-                Confirm with your phone
-              </button>
-              <FormError message={app.formError} />
-            </div>
-          ) : (
-            <>
-              <div className="forgot-note">
-                You can start this account over. Every expense saved under{' '}
-                {acc.email} on this phone is deleted.
-              </div>
-              <button
-                type="button"
-                className="danger-btn"
-                onClick={app.eraseAndStartOver}
-              >
-                Erase and start over
-              </button>
-            </>
-          )}
-
-          <button
-            type="button"
-            className="btn-quiet mt-22"
-            onClick={() => app.go('signin')}
-          >
+          <button type="button" className="btn-quiet mt-9" onClick={() => app.go('signin')}>
             Back to sign in
           </button>
         </>
-      ) : (
-        <>
-          <div className="forgot-note">Pick a new password for {acc.email}.</div>
-          <div className="field-group">
-            <PasswordField
-              placeholder="New password"
-              autoComplete="new-password"
-              value={app.fNew}
-              onChange={(v) => {
-                app.setFNew(v)
-                app.clearErr()
-              }}
-              borderColor={border(app, 'new')}
-            />
-            <PasswordField
-              placeholder="Repeat new password"
-              autoComplete="new-password"
-              value={app.fNew2}
-              onChange={(v) => {
-                app.setFNew2(v)
-                app.clearErr()
-              }}
-              borderColor={border(app, 'new2')}
-            />
-            <FormError message={app.formError} />
-          </div>
-          <button
-            type="button"
-            className="btn-primary mt-22"
-            style={{ background: ACCENT }}
-            onClick={() => void app.resetPassword()}
-          >
-            Save new password
-          </button>
-        </>
       )}
+    </div>
+  )
+}
+
+/**
+ * Firebase keeps the session, so the app opens straight into the money.
+ * When phone lock is on, this stands in the way first: the same
+ * fingerprint, face or PIN that unlocks the phone.
+ */
+export function Lock({ app }: { app: App }) {
+  return (
+    <div className="page-auth">
+      <div className="wordmark">
+        <Wordmark />
+      </div>
+      <div className="headline-auth">Hello, {app.account?.name || 'you'}.</div>
+
+      <div className="field-group">
+        <UnlockButton app={app} label="Unlock with your phone" />
+        <FormError message={app.formError} />
+      </div>
+
+      <button type="button" className="btn-quiet mt-22" onClick={app.askSignOut}>
+        Sign out instead
+      </button>
     </div>
   )
 }

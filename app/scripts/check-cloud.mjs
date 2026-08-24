@@ -1,0 +1,172 @@
+/**
+ * Drives the real app against the Firebase emulators and checks the things
+ * that only a running system can answer: does an account get made, does an
+ * expense reach Firestore, does it come back on another "phone", does the
+ * old phone-only data get carried up, and do the rules keep one account out
+ * of another's document.
+ *
+ *   firebase emulators:start --only auth,firestore
+ *   node e2e-cloud.mjs
+ */
+import { chromium } from 'playwright'
+
+const BASE = 'http://localhost:4173/Byuma-FT-Lite/'
+const PROJECT = 'demo-byuma'
+const REST = `http://127.0.0.1:8080/v1/projects/${PROJECT}/databases/(default)/documents`
+
+let failures = 0
+const check = (name, ok, extra = '') => {
+  console.log(`  ${ok ? '✓' : '✗'} ${name}${extra ? ' — ' + extra : ''}`)
+  if (!ok) failures++
+}
+
+// Start from nothing, so the run says the same thing every time.
+await fetch(`http://127.0.0.1:9099/emulator/v1/projects/${PROJECT}/accounts`, {
+  method: 'DELETE',
+})
+await fetch(
+  `http://127.0.0.1:8080/emulator/v1/projects/${PROJECT}/databases/(default)/documents`,
+  { method: 'DELETE' },
+)
+
+const browser = await chromium.launch({
+  executablePath: '/opt/pw-browsers/chromium-1194/chrome-linux/chrome',
+})
+
+/** A fresh browser context is a fresh phone: no storage, no session. */
+async function phone() {
+  const ctx = await browser.newContext({
+    viewport: { width: 360, height: 800 },
+    deviceScaleFactor: 2,
+    isMobile: true,
+    hasTouch: true,
+  })
+  const page = await ctx.newPage()
+  page.on('pageerror', (e) => {
+    console.log('  ! page error:', e.message)
+    failures++
+  })
+  return { ctx, page }
+}
+
+async function signUp(page, name, email, pass) {
+  await page.goto(BASE, { waitUntil: 'domcontentloaded' })
+  await page.waitForSelector('text=Track what you spend.')
+  await page.fill('input[placeholder="Name"]', name)
+  await page.fill('input[placeholder="Email"]', email)
+  await page.fill('input[placeholder="Password"]', pass)
+  await page.click('text=Create account')
+}
+
+async function record(page, amount, method, note) {
+  await page.click('.amount-display')
+  await page.fill('input[aria-label="Amount"]', amount)
+  await page.click(`.method-btn >> text=${method}`)
+  if (note) await page.click(`.chip >> text=${note}`)
+  await page.click('.cta')
+  await page.waitForTimeout(200)
+}
+
+/** The total sits behind a tap. Open it only if it is currently covered. */
+async function reveal(page) {
+  if ((await page.locator('.spent-figure').count()) === 0) {
+    await page.click('.spent-card')
+    await page.waitForSelector('.spent-figure')
+  }
+  return (await page.textContent('.spent-figure')).trim()
+}
+
+console.log('\n1. Sign up, record, and reach Firestore')
+const alice = await phone()
+await signUp(alice.page, 'Thierry', 'thierry@example.com', 'ubuzima2026')
+await alice.page.waitForSelector('.tour-slide', { timeout: 15000 })
+check('a new account lands in the tour', true)
+await alice.page.click('text=Skip')
+await alice.page.waitForSelector('.amount-display', { timeout: 10000 })
+await record(alice.page, '2400', 'MoMo', 'Groceries')
+await record(alice.page, '12500', 'Bank')
+// The save is debounced; give it room to land.
+await alice.page.waitForTimeout(2000)
+
+const docs = await (
+  await fetch(`${REST}/users`, { headers: { Authorization: 'Bearer owner' } })
+).json()
+const stored = docs.documents?.[0]
+check('a users/{uid} document exists', !!stored, stored ? stored.name.split('/').pop() : 'none')
+const items = stored?.fields?.items?.arrayValue?.values ?? []
+check('both expenses are in it', items.length === 2, `${items.length} found`)
+const amounts = items
+  .map((v) => Number(v.mapValue.fields.amount.doubleValue ?? v.mapValue.fields.amount.integerValue))
+  .sort((a, b) => a - b)
+check('the amounts are right', JSON.stringify(amounts) === '[2400,12500]', amounts.join(', '))
+
+console.log('\n2. The same account on a different phone')
+const bob = await phone()
+await bob.page.goto(BASE, { waitUntil: 'domcontentloaded' })
+await bob.page.waitForSelector('text=Track what you spend.')
+await bob.page.click('text=Sign in')
+await bob.page.waitForSelector('text=Welcome back.')
+await bob.page.fill('input[placeholder="Email"]', 'thierry@example.com')
+await bob.page.fill('input[placeholder="Password"]', 'ubuzima2026')
+await bob.page.click('.btn-primary >> text=Sign in')
+await bob.page.waitForSelector('.spent-card', { timeout: 15000 })
+const spent = await reveal(bob.page)
+check('the expenses followed the account', spent.includes('14,900'), spent.trim())
+
+console.log('\n3. An expense made on the second phone reaches the first')
+await record(bob.page, '600', 'Cash')
+await bob.page.waitForTimeout(2000)
+await alice.page.reload({ waitUntil: 'domcontentloaded' })
+await alice.page.waitForSelector('.spent-card', { timeout: 15000 })
+const back = await reveal(alice.page)
+check('the first phone sees it after a reload', back.includes('15,500'), back.trim())
+
+console.log('\n4. Data from the phone-only version is carried up')
+const old = await phone()
+await old.page.goto(BASE, { waitUntil: 'domcontentloaded' })
+// Plant exactly what an older build of the app would have left behind.
+await old.page.evaluate(() => {
+  localStorage.setItem(
+    'byuma.accounts.v1',
+    JSON.stringify([
+      {
+        id: 'legacy-1',
+        name: 'Old',
+        email: 'old@example.com',
+        salt: 'x',
+        hash: 'y',
+        iterations: 210000,
+        createdAt: Date.now(),
+      },
+    ]),
+  )
+  localStorage.setItem(
+    'byuma.data.v1.legacy-1',
+    JSON.stringify({
+      items: [
+        { id: 'a', amount: 7700, method: 'cash', note: 'Rent', cur: 'RWF', at: Date.now() },
+      ],
+      balances: { RWF: 500000 },
+      selCurs: ['RWF'],
+      mainCur: 'RWF',
+    }),
+  )
+})
+await signUp(old.page, 'Old', 'old@example.com', 'ubuzima2026')
+await old.page.waitForSelector('.tour-slide', { timeout: 15000 })
+await old.page.click('text=Skip')
+await old.page.waitForSelector('.amount-display', { timeout: 10000 })
+const carried = await reveal(old.page)
+check('the old expense survived the move', carried.includes('7,700'), carried.trim())
+const cleaned = await old.page.evaluate(() => localStorage.getItem('byuma.accounts.v1'))
+check('the phone-only copy was cleared afterwards', cleaned === null)
+
+console.log('\n5. The rules keep one account out of another')
+const uid = stored?.name.split('/').pop()
+const open = await fetch(`${REST}/users/${uid}`)
+check('an unauthenticated read is refused', open.status === 403 || open.status === 401,
+  'HTTP ' + open.status)
+
+await browser.close()
+console.log(failures ? `\n${failures} problem(s).\n` : '\nEverything checked out.\n')
+process.exit(failures ? 1 : 0)

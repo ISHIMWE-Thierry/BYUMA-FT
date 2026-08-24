@@ -8,9 +8,12 @@
     "build": "tsc -b && vite build",
     "postbuild": "cp dist/index.html dist/404.html",
     "preview": "vite preview",
-    "test": "vitest run"
+    "test": "vitest run",
+    "emulators": "firebase emulators:start --project demo-byuma --only auth,firestore",
+    "check:cloud": "node scripts/check-cloud.mjs"
   },
   "dependencies": {
+    "firebase": "^12.18.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
   },

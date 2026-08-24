@@ -159,69 +159,117 @@ box. Once you type a rate yourself, the app will not overwrite it.
 
 ## 3. Signing in
 
-Three ways in, and one way back if you forget.
+Your account lives with Firebase now, not on one handset, so the same
+email and password get you in on any phone — and what you record on one
+appears on the other.
 
 **Your password.** What you set when you created the account. The eye at the
 right of any password box shows what you have typed, so you are never
 guessing on a phone keyboard.
 
+**If you forget it.** Tap **Forgot your password?** on the sign-in screen,
+type your email, and a link to set a new one arrives in your inbox. Open it
+on the phone and sign in again. The screen says the same thing whether or
+not that email has an account, so nobody can use it to find out who is
+registered.
+
 **Your phone's fingerprint, face or PIN.** Go to **Profile → Security** and
-turn on **Unlock with your phone**. After that the sign-in screen offers
-*Unlock as <your name>* and you are in with one tap — no typing. Your
-fingerprint never leaves your phone; the app only ever learns whether your
-phone said yes.
+turn on **Lock with your phone**. Because you now stay signed in, this is no
+longer how you get *back* into an account — it is what stands between
+someone holding your unlocked phone and your money: the app asks for your
+fingerprint before it opens. Your fingerprint never leaves your phone; the
+app only ever learns whether the phone said yes. It guards the phone it was
+set up on; another phone needs its own.
 
-**If you forget your password.** Tap **Forgot your password?** on the sign-in
-screen. Your account lives only on this phone, so the phone itself can vouch
-for you: confirm with the same fingerprint, face or PIN that unlocks the
-phone, and set a new password straight away. Your expenses are untouched.
-This works even if you never turned on phone unlock — and after it, phone
-unlock is on for that account, so the next sign-in is one tap.
-
-Be clear-eyed about what that means: anyone who can unlock your phone can
-also reset a password in this app. On your own phone that person is you; if
-you share your phone and its PIN, you share what the PIN can open.
-
-Only a phone with no screen lock at all (or a browser that cannot ask for
-one) has nothing to check against. There is no email server behind this app
-to send a reset link to, so the only honest option left there is to erase
-that account and start over, which deletes its expenses. The app says so
-plainly before it does anything.
-
-**Phone unlock is still worth turning on early** — it is the fast way in:
-one tap instead of typing a password.
+**Changing your email** sends a link to the new address first. The account
+moves over only once you open that link, so a typo cannot lock you out.
 
 ---
 
 ## 4. Where your information is kept
 
-Everything is stored **inside your own phone**. Nothing is uploaded
-anywhere and nobody else can see it. Your password is not stored — only a
-scrambled version of it that cannot be turned back into your password.
+Your expenses live in **Firebase** — a Google service, in a project that
+belongs to you. Signing in on a new phone brings everything with you, and
+losing a phone no longer loses the history.
 
-Be clear-eyed about what the lock does: it keeps the app shut, not the file.
-Your expenses sit in ordinary browser storage on the phone, unencrypted, so
-somebody who knows their way around a browser's developer tools could read
-them. The password and the phone unlock guard the app, not the data at rest.
-For a personal expense tracker on your own phone that is a fair trade; it is
-not a safe.
+The phone still keeps a full copy, which is what lets the app open and
+record with no internet at all. Anything written offline is queued and goes
+up the moment there is a connection.
+
+What guards it:
+
+- Every account can read and write **exactly one document — its own**. That
+  is written down in `firestore.rules` and enforced by Firebase itself, not
+  by the app, so it holds no matter what any copy of the app tries.
+- Your password is never in the app or in the database. Firebase holds it,
+  hashed, and this code never sees it.
+- The Firebase keys inside the app are **not secrets** — every web app ships
+  them in plain sight. They identify the project; the rules are the lock.
 
 Three things to know:
 
-- Your expenses **do not follow you to a second phone**. Each phone keeps
-  its own. Your friends each get their own private account on their own
-  phone.
-- If you **clear your browser data** for this site, or delete the app and
-  choose to clear its data, your expenses go with it.
-- **Phone unlock only works on the phone you set it up on.** It is tied to
-  that handset, so it cannot let you in from a different one.
-
-If you later want your account to work on any phone, with a real backup,
-that needs an online service behind it. Tell me and I will add it.
+- **Deleting your account deletes it everywhere**, not just on the phone in
+  your hand.
+- Anyone who can unlock your phone can open the app, unless you turn on
+  **Lock with your phone**.
+- Expenses recorded on another phone appear when the app is opened or
+  brought back to the front — not mid-screen while you are looking at it.
 
 ---
 
-## 5. Where the design was not followed exactly
+## 5. Connecting the app to Firebase
+
+Only needed once, by whoever publishes the app.
+
+**In the Firebase console** (console.firebase.google.com), in your project:
+
+1. **Authentication → Sign-in method → Email/Password → Enable.**
+2. **Firestore Database → Create database.** Pick a region near you and
+   start in production mode; the rules below replace whatever it starts
+   with.
+3. **Project settings → General → Your apps → Web app.** Copy the config
+   block it shows (`apiKey`, `authDomain`, `projectId`, and the rest).
+
+**In this repository**, under
+*Settings → Secrets and variables → Actions → Variables*, add one repository
+variable per line of that config:
+
+| Variable | From the config |
+|---|---|
+| `VITE_FB_API_KEY` | `apiKey` |
+| `VITE_FB_AUTH_DOMAIN` | `authDomain` |
+| `VITE_FB_PROJECT_ID` | `projectId` |
+| `VITE_FB_STORAGE_BUCKET` | `storageBucket` |
+| `VITE_FB_SENDER_ID` | `messagingSenderId` |
+| `VITE_FB_APP_ID` | `appId` |
+
+They are *variables*, not secrets, because they are public either way — and
+a secret would be masked in the build log, which only makes trouble harder
+to read. If you would rather not use the repository settings at all, paste
+the same values into the `FALLBACK` block at the top of
+`app/src/lib/firebase.ts` instead.
+
+**Publish the rules**, once:
+
+```
+npx firebase deploy --only firestore:rules
+```
+
+Until the keys are in place the app cannot reach any account, and says so
+on its own screen rather than failing quietly.
+
+**Checking it locally**, without touching the real project:
+
+```
+cd app
+npm run emulators          # Firebase's own local Auth + Firestore
+npm run build && npm run preview
+npm run check:cloud        # signs up, records, syncs, migrates, checks the rules
+```
+
+---
+
+## 6. Where the design was not followed exactly
 
 Three deliberate changes. Everything else matches the designs.
 
@@ -285,7 +333,7 @@ Two smaller adjustments you asked for during the build:
 
 ---
 
-## 6. How it fits different phones
+## 7. How it fits different phones
 
 The design was drawn on a 390px-wide screen. Every single measurement —
 margins, padding, corner radius, text size — is stored as a fraction of
@@ -305,7 +353,7 @@ and sits in the middle of the window.
 
 ---
 
-## 7. For a developer
+## 8. For a developer
 
 ```bash
 cd app

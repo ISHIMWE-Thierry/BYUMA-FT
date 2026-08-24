@@ -9,7 +9,7 @@ import {
   Wordmark,
   type Tab,
 } from './components/ui'
-import { Forgot, SignIn, SignUp } from './screens/Auth'
+import { Forgot, Lock, SignIn, SignUp } from './screens/Auth'
 import { Tour } from './screens/Tour'
 import { Home } from './screens/Home'
 import { History } from './screens/History'
@@ -61,8 +61,8 @@ export default function App() {
     )
   }
 
-  const chrome =
-    screen !== 'signup' && screen !== 'signin' && screen !== 'error' && screen !== 'tour'
+  const bare: string[] = ['signup', 'signin', 'lock', 'error', 'tour']
+  const chrome = !bare.includes(screen)
 
   // The four destinations reachable from the tab bar. Everything else is
   // something you stepped into, and keeps the back chevron instead.
@@ -89,6 +89,7 @@ export default function App() {
 
           {screen === 'signup' && <SignUp app={app} />}
           {screen === 'signin' && <SignIn app={app} />}
+          {screen === 'lock' && <Lock app={app} />}
           {screen === 'tour' && <Tour app={app} />}
           {screen === 'forgot' && <Forgot app={app} />}
           {screen === 'home' && <Home app={app} />}

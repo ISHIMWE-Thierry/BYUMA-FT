@@ -77,11 +77,11 @@ export function Profile({ app }: { app: App }) {
           <div className="list-card">
             <div className="toggle-row">
               <div>
-                <div className="toggle-label">Unlock with your phone</div>
+                <div className="toggle-label">Lock with your phone</div>
                 <div className="toggle-hint">
                   {phoneOn
-                    ? 'Sign in with your fingerprint, face or PIN.'
-                    : 'Sign in with one tap instead of typing your password.'}
+                    ? 'Opening the app asks for your fingerprint, face or PIN.'
+                    : 'Ask for your fingerprint, face or PIN before the app opens.'}
                 </div>
               </div>
               <button
@@ -89,7 +89,7 @@ export function Profile({ app }: { app: App }) {
                 className="toggle"
                 role="switch"
                 aria-checked={phoneOn}
-                aria-label="Unlock with your phone"
+                aria-label="Lock with your phone"
                 onClick={() =>
                   phoneOn ? app.disablePhoneUnlock() : void app.enablePhoneUnlock()
                 }

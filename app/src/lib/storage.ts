@@ -1,18 +1,35 @@
-import type { Account, Income, Plan, Prio, Safety, Settings, UserData } from '../types'
+import type { Income, Plan, Prio, Safety, Settings, UserData } from '../types'
 import { BASE_CURS, BASE_RATES, convert } from './rates'
 
+/** An account as the phone-only versions wrote it, password hash and all. */
+export interface LegacyAccount {
+  id: string
+  name: string
+  email: string
+  createdAt: number
+  passkeyId?: string
+}
+
 /**
- * Everything is kept in this phone's own storage. Accounts live under one
- * key; each account's money data lives under its own key so signing out
- * and back in brings the same data back.
+ * What still belongs to the phone rather than to the account.
+ *
+ * The money data lives in Firebase now (see cloud.ts), and Firestore keeps
+ * its own saved copy for working offline. Two things stay here:
+ *
+ *   - the passkey this phone enrolled, which is bound to this phone and
+ *     would be meaningless on another one;
+ *   - whatever an older, phone-only version of the app saved, kept only so
+ *     it can be carried up the first time its owner signs in.
  */
 
+// Written by the versions before Firebase. Read for that migration, never
+// written again.
 const K_ACCOUNTS = 'byuma.accounts.v1'
-const K_SESSION = 'byuma.session.v1'
-// Who signed in last on this phone, so the sign-in screen can offer to
-// unlock with the phone instead of asking for the password.
-const K_LAST = 'byuma.last.v1'
 const K_DATA = 'byuma.data.v1.'
+const K_SESSION = 'byuma.session.v1'
+const K_LAST = 'byuma.last.v1'
+
+const K_PASSKEY = 'byuma.passkey.v1.'
 
 function read<T>(key: string, fallback: T): T {
   try {
@@ -179,59 +196,57 @@ export function normalise(raw: (Partial<UserData> & LegacyLimits) | null): UserD
   }
 }
 
-export function loadAccounts(): Account[] {
-  return read<Account[]>(K_ACCOUNTS, [])
-}
+/* ---------------- what an older version of the app left behind ---------- */
 
-export function saveAccounts(list: Account[]): void {
-  write(K_ACCOUNTS, list)
-}
-
-export function findAccount(email: string): Account | undefined {
-  const target = email.trim().toLowerCase()
-  return loadAccounts().find((a) => a.email.toLowerCase() === target)
-}
-
-export function loadSession(): string | null {
-  return read<string | null>(K_SESSION, null)
-}
-
-export function saveSession(id: string | null): void {
-  if (id === null) {
-    try {
-      localStorage.removeItem(K_SESSION)
-    } catch {
-      /* ignore */
-    }
-    return
-  }
-  write(K_SESSION, id)
-}
-
-export function loadLastAccountId(): string | null {
-  return read<string | null>(K_LAST, null)
-}
-
-export function saveLastAccountId(id: string): void {
-  write(K_LAST, id)
-}
-
-export function removeAccount(accountId: string): void {
-  saveAccounts(loadAccounts().filter((a) => a.id !== accountId))
-  try {
-    localStorage.removeItem(K_DATA + accountId)
-    if (loadLastAccountId() === accountId) localStorage.removeItem(K_LAST)
-  } catch {
-    /* ignore */
-  }
+/** Accounts saved by the phone-only versions. Read for the migration only. */
+export function loadAccounts(): LegacyAccount[] {
+  return read<LegacyAccount[]>(K_ACCOUNTS, [])
 }
 
 export function loadData(accountId: string): UserData {
   return normalise(read<Partial<UserData> | null>(K_DATA + accountId, null))
 }
 
-export function saveData(accountId: string, data: UserData): void {
-  write(K_DATA + accountId, data)
+/**
+ * Drop what the phone-only version saved for an email address. Called once
+ * that data has been carried up to the account it belongs to, and again if
+ * the account is deleted, so a stale copy is never left lying on the phone.
+ */
+export function clearLegacyFor(email: string): void {
+  const target = email.trim().toLowerCase()
+  const list = loadAccounts()
+  const gone = list.filter((a) => a.email.toLowerCase() === target)
+  if (!gone.length) return
+  const kept = list.filter((a) => a.email.toLowerCase() !== target)
+  try {
+    for (const a of gone) localStorage.removeItem(K_DATA + a.id)
+    if (kept.length) write(K_ACCOUNTS, kept)
+    else {
+      localStorage.removeItem(K_ACCOUNTS)
+      localStorage.removeItem(K_SESSION)
+      localStorage.removeItem(K_LAST)
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+/* ---------------- the passkey this phone enrolled ---------------------- */
+
+export function loadPasskeyId(uid: string): string | undefined {
+  return read<string | null>(K_PASSKEY + uid, null) ?? undefined
+}
+
+export function savePasskeyId(uid: string, credentialId: string): void {
+  write(K_PASSKEY + uid, credentialId)
+}
+
+export function clearPasskeyId(uid: string): void {
+  try {
+    localStorage.removeItem(K_PASSKEY + uid)
+  } catch {
+    /* ignore */
+  }
 }
 
 export function newId(): string {

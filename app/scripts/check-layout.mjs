@@ -86,16 +86,16 @@ for (const device of DEVICES) {
     console.log(`  ! page error: ${e.message}`)
   })
 
-  await page.goto(BASE, { waitUntil: 'networkidle' })
+  await page.goto(BASE, { waitUntil: 'domcontentloaded' })
   await page.evaluate(() => localStorage.clear())
-  await page.reload({ waitUntil: 'networkidle' })
+  await page.reload({ waitUntil: 'domcontentloaded' })
 
   // 1.1 Sign up
   await page.waitForSelector('text=Track what you spend.')
   await shoot(page, device, '1.1-signup')
 
   await page.fill('input[placeholder="Name"]', 'Thierry')
-  await page.fill('input[placeholder="Email"]', 'thierry@gmail.com')
+  await page.fill('input[placeholder="Email"]', `thierry+${device.name}@example.com`)
   await page.fill('input[placeholder="Password"]', 'ubuzima2026')
   await page.click('text=Create account')
 
