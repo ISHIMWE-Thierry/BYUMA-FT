@@ -122,6 +122,13 @@ function authMessage(err: unknown): string {
       return 'No internet. Connect and try again.'
     case 'auth/requires-recent-login':
       return 'Sign out and back in first, then try again.'
+    case 'auth/unauthorized-domain':
+      // The app is being served from an address Firebase has not been told
+      // about — say which, because the fix is to add exactly that one under
+      // Authentication → Settings → Authorized domains.
+      return 'This address is not allowed by Firebase yet: ' + location.hostname
+    case 'auth/operation-not-allowed':
+      return 'Email sign-in is switched off in Firebase.'
     default:
       return 'That did not work. Try again.'
   }

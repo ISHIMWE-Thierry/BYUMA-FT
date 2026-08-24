@@ -10,7 +10,7 @@
  */
 import { chromium } from 'playwright'
 
-const BASE = 'http://localhost:4173/Byuma-FT-Lite/'
+const BASE = process.env.APP_URL || 'http://localhost:4173/Byuma-FT-Lite/'
 const PROJECT = 'demo-byuma'
 const REST = `http://127.0.0.1:8080/v1/projects/${PROJECT}/databases/(default)/documents`
 

@@ -269,7 +269,46 @@ npm run check:cloud        # signs up, records, syncs, migrates, checks the rule
 
 ---
 
-## 6. Where the design was not followed exactly
+## 6. Hosting it on Vercel
+
+The app is a folder of static files, so Vercel serves it as happily as
+GitHub Pages does. Everything Vercel needs to build it is already in
+`vercel.json` at the top of this repository — the install and build
+commands, and where the built files land — so you do not have to set a
+root directory or a framework by hand.
+
+1. Go to **vercel.com/new** and import **byumarwanda/Byuma-FT-Lite**.
+   Leave the build settings alone; `vercel.json` fills them in.
+2. Before the first deploy finishes, open **Settings → Environment
+   Variables** and add the same six values from section 5 —
+   `VITE_FB_API_KEY`, `VITE_FB_AUTH_DOMAIN`, `VITE_FB_PROJECT_ID`,
+   `VITE_FB_STORAGE_BUCKET`, `VITE_FB_SENDER_ID`, `VITE_FB_APP_ID`.
+   Tick **Production**, **Preview** and **Development** for each, then
+   redeploy so the build picks them up.
+3. **Tell Firebase about the new address.** In the Firebase console:
+   **Authentication → Settings → Authorized domains → Add domain**, and
+   add your Vercel address (`something.vercel.app`, plus your own domain
+   if you attach one). Sign-in is refused from any address not on that
+   list — the app names the address it was refused for, so this is easy
+   to spot.
+
+That is all. Vercel rebuilds on every push to `main`, the same as Pages.
+
+**Both links keep working.** GitHub Pages and Vercel are two doors into
+the same Firebase project, so the same email and password show the same
+money through either. Nothing needs to be moved or copied. When you are
+ready to settle on one, just stop sharing the other — and on a phone that
+already has the old one on its home screen, open the new link, add that
+to the home screen, and delete the old icon.
+
+One thing to know: Vercel gives every branch and pull request its own
+preview address, and those addresses are not on Firebase's authorized
+list. Previews will show the app but refuse to sign in, which is usually
+what you want anyway.
+
+---
+
+## 7. Where the design was not followed exactly
 
 Three deliberate changes. Everything else matches the designs.
 
@@ -333,7 +372,7 @@ Two smaller adjustments you asked for during the build:
 
 ---
 
-## 7. How it fits different phones
+## 8. How it fits different phones
 
 The design was drawn on a 390px-wide screen. Every single measurement —
 margins, padding, corner radius, text size — is stored as a fraction of
@@ -353,7 +392,7 @@ and sits in the middle of the window.
 
 ---
 
-## 8. For a developer
+## 9. For a developer
 
 ```bash
 cd app
