@@ -9,7 +9,7 @@ import {
   Wordmark,
   type Tab,
 } from './components/ui'
-import { Forgot, SignIn, SignUp } from './screens/Auth'
+import { Forgot, Lock, SignIn, SignUp } from './screens/Auth'
 import { Tour } from './screens/Tour'
 import { Home } from './screens/Home'
 import { History } from './screens/History'
@@ -22,6 +22,7 @@ import {
   ChangePassword,
   Profile,
 } from './screens/Profile'
+import { Accounts, Phases, PhaseView, ProTour } from './screens/Pro'
 import { ErrorScreen } from './screens/ErrorScreen'
 
 const TITLES: Record<string, ReactNode> = {
@@ -33,6 +34,9 @@ const TITLES: Record<string, ReactNode> = {
   password: 'PASSWORD',
   history: 'HISTORY',
   cats: 'CATEGORIES',
+  accounts: 'ACCOUNTS',
+  phases: 'PHASES',
+  phase: 'PHASE',
   forgot: 'PASSWORD',
   curs: 'CURRENCIES',
   balance: 'BALANCE',
@@ -61,8 +65,8 @@ export default function App() {
     )
   }
 
-  const chrome =
-    screen !== 'signup' && screen !== 'signin' && screen !== 'error' && screen !== 'tour'
+  const bare: string[] = ['signup', 'signin', 'lock', 'error', 'tour', 'pro']
+  const chrome = !bare.includes(screen)
 
   // The four destinations reachable from the tab bar. Everything else is
   // something you stepped into, and keeps the back chevron instead.
@@ -89,6 +93,7 @@ export default function App() {
 
           {screen === 'signup' && <SignUp app={app} />}
           {screen === 'signin' && <SignIn app={app} />}
+          {screen === 'lock' && <Lock app={app} />}
           {screen === 'tour' && <Tour app={app} />}
           {screen === 'forgot' && <Forgot app={app} />}
           {screen === 'home' && <Home app={app} />}
@@ -98,6 +103,10 @@ export default function App() {
           {screen === 'plans' && <PlansScreen app={app} />}
           {screen === 'curs' && <Currencies app={app} />}
           {screen === 'cats' && <Categories app={app} />}
+          {screen === 'accounts' && <Accounts app={app} />}
+          {screen === 'phases' && <Phases app={app} />}
+          {screen === 'phase' && <PhaseView app={app} />}
+          {screen === 'pro' && <ProTour app={app} />}
           {screen === 'profile' && <Profile app={app} />}
           {screen === 'name' && <ChangeName app={app} />}
           {screen === 'email' && <ChangeEmail app={app} />}

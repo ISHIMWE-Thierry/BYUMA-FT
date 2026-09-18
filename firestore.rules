@@ -1,0 +1,23 @@
+rules_version = '2';
+
+// What actually guards the data.
+//
+// The Firebase keys in the app are public — they ship inside the JavaScript
+// of every page — so these rules, not the keys, are what keep one person's
+// money out of another person's hands: you must be signed in, and the only
+// document you can ever touch is the one named after your own account.
+//
+// Publish with:  firebase deploy --only firestore:rules
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    match /users/{uid} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+
+    // Anything not named above is closed, to this app and to the world.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

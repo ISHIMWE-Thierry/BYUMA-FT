@@ -1,9 +1,39 @@
+/** The three shapes money takes, which is all an icon needs to know. */
 export type Method = 'cash' | 'momo' | 'bank'
+
+/**
+ * Somewhere money sits: Cash, a bank, a wallet on a phone.
+ *
+ * Everyone has these. Without Pro they are the three standard ones and
+ * cannot be renamed; with Pro a person names their own — Ziraat, Albaraka —
+ * and each still borrows one of the three shapes for its icon.
+ */
+export interface Account {
+  id: string
+  name: string
+  kind: Method
+  /** Made by the person rather than one of the three standard ones. */
+  custom?: boolean
+}
+
+/**
+ * A named stretch of time — "Rwanda", "Back in Türkiye" — so a season of
+ * spending can be read on its own. Expenses belong to a phase by their
+ * date, so a phase can be drawn around a time already lived. Pro only.
+ */
+export interface Phase {
+  id: string
+  name: string
+  /** yyyy-mm-dd. `to` empty means it is still running. */
+  from: string
+  to: string
+}
 
 export interface Expense {
   id: string
   amount: number
-  method: Method
+  /** The account it came out of. Matches an Account id. */
+  acc: string
   note: string
   /** A longer clarification, offered only inside the editor. */
   detail?: string
@@ -51,6 +81,8 @@ export interface Settings {
   hideBal: boolean
   hideMonth: boolean
   hideSpent: boolean
+  /** Named accounts and phases. Off by default; nothing is lost turning it off. */
+  pro: boolean
 }
 
 /** Everything one signed-in person owns. Saved on the phone under their id. */
@@ -64,7 +96,10 @@ export interface UserData {
   /** Codes whose rate the person typed themselves — a refresh must not overwrite these. */
   manualRates: string[]
   ratesFetchedAt: number | null
-  balances: Record<string, number>
+  /** Per account, then per currency: what is in that account right now. */
+  balances: Record<string, Record<string, number>>
+  accounts: Account[]
+  phases: Phase[]
   plans: Plan[]
   incomes: Income[]
   safety: Safety
@@ -74,21 +109,28 @@ export interface UserData {
   cleared: boolean
 }
 
-export interface Account {
+/**
+ * The signed-in person. Firebase owns the sign-in itself — the id is their
+ * Firebase uid and the password never reaches this app — so nothing secret
+ * is kept here.
+ */
+export interface User {
   id: string
   name: string
   email: string
-  salt: string
-  hash: string
-  iterations: number
   createdAt: number
-  /** Set once this phone has been asked to remember the account. */
+  /**
+   * Set once this phone has been asked to remember the account. A passkey
+   * belongs to one phone, so this is stored on the phone rather than in the
+   * account: another phone must enrol its own.
+   */
   passkeyId?: string
 }
 
 export type Screen =
   | 'signup'
   | 'signin'
+  | 'lock'
   | 'tour'
   | 'home'
   | 'history'
@@ -101,6 +143,10 @@ export type Screen =
   | 'email'
   | 'password'
   | 'cats'
+  | 'accounts'
+  | 'phases'
+  | 'phase'
+  | 'pro'
   | 'forgot'
   | 'error'
 

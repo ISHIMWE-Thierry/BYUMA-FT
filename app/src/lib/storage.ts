@@ -1,18 +1,35 @@
-import type { Account, Income, Plan, Prio, Safety, Settings, UserData } from '../types'
+import type { Account, Expense, Income, Method, Phase, Plan, Prio, Safety, Settings, UserData } from '../types'
 import { BASE_CURS, BASE_RATES, convert } from './rates'
 
+/** An account as the phone-only versions wrote it, password hash and all. */
+export interface LegacyAccount {
+  id: string
+  name: string
+  email: string
+  createdAt: number
+  passkeyId?: string
+}
+
 /**
- * Everything is kept in this phone's own storage. Accounts live under one
- * key; each account's money data lives under its own key so signing out
- * and back in brings the same data back.
+ * What still belongs to the phone rather than to the account.
+ *
+ * The money data lives in Firebase now (see cloud.ts), and Firestore keeps
+ * its own saved copy for working offline. Two things stay here:
+ *
+ *   - the passkey this phone enrolled, which is bound to this phone and
+ *     would be meaningless on another one;
+ *   - whatever an older, phone-only version of the app saved, kept only so
+ *     it can be carried up the first time its owner signs in.
  */
 
+// Written by the versions before Firebase. Read for that migration, never
+// written again.
 const K_ACCOUNTS = 'byuma.accounts.v1'
-const K_SESSION = 'byuma.session.v1'
-// Who signed in last on this phone, so the sign-in screen can offer to
-// unlock with the phone instead of asking for the password.
-const K_LAST = 'byuma.last.v1'
 const K_DATA = 'byuma.data.v1.'
+const K_SESSION = 'byuma.session.v1'
+const K_LAST = 'byuma.last.v1'
+
+const K_PASSKEY = 'byuma.passkey.v1.'
 
 function read<T>(key: string, fallback: T): T {
   try {
@@ -53,7 +70,24 @@ export function rememberCategory(cats: string[], note: string): string[] {
   return [...cats, name]
 }
 
-/** A brand new account: no expenses, and a zero balance in every currency. */
+/**
+ * The accounts everyone starts with. Cash and Bank are the two a person
+ * always has; MoMo is the same kind of thing but not everybody uses one, so
+ * it is offered rather than assumed. None of the three can be renamed —
+ * naming your own is what Pro is for.
+ */
+export const STANDARD: Account[] = [
+  { id: 'cash', name: 'Cash', kind: 'cash' },
+  { id: 'bank', name: 'Bank', kind: 'bank' },
+  { id: 'momo', name: 'MoMo', kind: 'momo' },
+]
+
+/** The two that are there from the start; MoMo is added if it is wanted. */
+const STARTING = ['cash', 'bank']
+
+export const isStandard = (id: string) => STANDARD.some((a) => a.id === id)
+
+/** A brand new account: no expenses, and a zero balance everywhere. */
 export function freshData(): UserData {
   return {
     cats: BASE_CATS.slice(),
@@ -63,8 +97,10 @@ export function freshData(): UserData {
     rates: { ...BASE_RATES },
     manualRates: [],
     ratesFetchedAt: null,
+    accounts: STANDARD.filter((a) => STARTING.includes(a.id)).map((a) => ({ ...a })),
+    phases: [],
     // "a zero balance in every currency", exactly as the design starts.
-    balances: { RWF: 0, TL: 0, USD: 0 },
+    balances: { cash: { RWF: 0, TL: 0, USD: 0 }, bank: {} },
     plans: [],
     incomes: [],
     safety: { amt: 0, cur: 'RWF' },
@@ -74,6 +110,7 @@ export function freshData(): UserData {
       hideBal: false,
       hideMonth: false,
       hideSpent: false,
+      pro: false,
     },
     items: [],
     cleared: false,
@@ -115,6 +152,54 @@ function asIncomes(v: unknown): Income[] {
       counted: !!i.counted,
     }))
     .filter((i) => i.amt > 0)
+}
+
+const KINDS: Method[] = ['cash', 'momo', 'bank']
+
+function asAccounts(v: unknown): Account[] {
+  if (!Array.isArray(v)) return []
+  return v
+    .filter((a): a is Account => !!a && typeof a === 'object')
+    .map((a) => ({
+      id: typeof a.id === 'string' && a.id ? a.id : newId(),
+      name: typeof a.name === 'string' && a.name.trim() ? a.name.trim() : 'Account',
+      kind: KINDS.includes(a.kind) ? a.kind : 'cash',
+      ...(a.custom ? { custom: true } : {}),
+    }))
+}
+
+function asPhases(v: unknown): Phase[] {
+  if (!Array.isArray(v)) return []
+  return v
+    .filter((p): p is Phase => !!p && typeof p === 'object')
+    .map((p) => ({
+      id: typeof p.id === 'string' && p.id ? p.id : newId(),
+      name: typeof p.name === 'string' ? p.name : '',
+      from: typeof p.from === 'string' ? p.from : '',
+      to: typeof p.to === 'string' ? p.to : '',
+    }))
+    .filter((p) => p.name && p.from)
+}
+
+/** The shape expenses and balances had before accounts existed. */
+type LegacyExpense = Partial<Expense> & { method?: Method }
+
+function asItems(v: unknown): Expense[] {
+  if (!Array.isArray(v)) return []
+  return (v as LegacyExpense[])
+    .filter((i) => !!i && typeof i === 'object')
+    .map((i) => ({
+      id: typeof i.id === 'string' ? i.id : newId(),
+      amount: typeof i.amount === 'number' ? i.amount : 0,
+      // Before accounts, an expense carried the shape it was paid in, and
+      // those three shapes are exactly the three standard accounts — so the
+      // old value already names the account it came from.
+      acc: typeof i.acc === 'string' && i.acc ? i.acc : (i.method ?? 'cash'),
+      note: typeof i.note === 'string' ? i.note : '',
+      ...(typeof i.detail === 'string' && i.detail ? { detail: i.detail } : {}),
+      cur: typeof i.cur === 'string' ? i.cur : 'RWF',
+      at: typeof i.at === 'number' ? i.at : Date.now(),
+    }))
 }
 
 /** Fill in anything a stored blob is missing, so an old save never crashes. */
@@ -161,6 +246,40 @@ export function normalise(raw: (Partial<UserData> & LegacyLimits) | null): UserD
     settings.hideSpent = true
   }
 
+  const items = asItems(raw.items)
+
+  // Accounts, and the balances that sit in them.
+  //
+  // A save from before accounts held one balance per currency and no notion
+  // of where that money was. It all lands on Cash, which the Update balance
+  // screen then says plainly so it can be split across the real accounts.
+  let accounts = asAccounts(raw.accounts)
+  let balances: Record<string, Record<string, number>> = {}
+  const rawBal = (raw.balances ?? {}) as Record<string, unknown>
+  const perAccount = Object.values(rawBal).every(
+    (v) => v !== null && typeof v === 'object',
+  )
+
+  if (perAccount) {
+    for (const [acc, byCur] of Object.entries(rawBal)) {
+      balances[acc] = { ...(byCur as Record<string, number>) }
+    }
+  } else {
+    // The old shape: currency -> amount, with nowhere named.
+    balances = { cash: { ...(rawBal as Record<string, number>) } }
+  }
+
+  if (!accounts.length) {
+    accounts = STANDARD.filter((a) => STARTING.includes(a.id)).map((a) => ({ ...a }))
+  }
+  // Nothing may be orphaned: an expense recorded on MoMo keeps MoMo on the
+  // list even though a new person is not given one.
+  for (const i of items) {
+    if (accounts.some((a) => a.id === i.acc)) continue
+    const standard = STANDARD.find((a) => a.id === i.acc)
+    accounts.push(standard ? { ...standard } : { id: i.acc, name: 'Account', kind: 'cash' })
+  }
+
   return {
     cats: Array.isArray(raw.cats) ? raw.cats : base.cats,
     allCurs: Array.isArray(raw.allCurs) && raw.allCurs.length ? raw.allCurs : base.allCurs,
@@ -169,69 +288,69 @@ export function normalise(raw: (Partial<UserData> & LegacyLimits) | null): UserD
     rates,
     manualRates: Array.isArray(raw.manualRates) ? raw.manualRates : [],
     ratesFetchedAt: typeof raw.ratesFetchedAt === 'number' ? raw.ratesFetchedAt : null,
-    balances: { ...(raw.balances ?? {}) },
+    accounts,
+    phases: asPhases(raw.phases),
+    balances,
     plans,
     incomes: asIncomes(raw.incomes),
     safety,
     settings,
-    items: Array.isArray(raw.items) ? raw.items : [],
+    items,
     cleared: !!raw.cleared,
   }
 }
 
-export function loadAccounts(): Account[] {
-  return read<Account[]>(K_ACCOUNTS, [])
-}
+/* ---------------- what an older version of the app left behind ---------- */
 
-export function saveAccounts(list: Account[]): void {
-  write(K_ACCOUNTS, list)
-}
-
-export function findAccount(email: string): Account | undefined {
-  const target = email.trim().toLowerCase()
-  return loadAccounts().find((a) => a.email.toLowerCase() === target)
-}
-
-export function loadSession(): string | null {
-  return read<string | null>(K_SESSION, null)
-}
-
-export function saveSession(id: string | null): void {
-  if (id === null) {
-    try {
-      localStorage.removeItem(K_SESSION)
-    } catch {
-      /* ignore */
-    }
-    return
-  }
-  write(K_SESSION, id)
-}
-
-export function loadLastAccountId(): string | null {
-  return read<string | null>(K_LAST, null)
-}
-
-export function saveLastAccountId(id: string): void {
-  write(K_LAST, id)
-}
-
-export function removeAccount(accountId: string): void {
-  saveAccounts(loadAccounts().filter((a) => a.id !== accountId))
-  try {
-    localStorage.removeItem(K_DATA + accountId)
-    if (loadLastAccountId() === accountId) localStorage.removeItem(K_LAST)
-  } catch {
-    /* ignore */
-  }
+/** Accounts saved by the phone-only versions. Read for the migration only. */
+export function loadAccounts(): LegacyAccount[] {
+  return read<LegacyAccount[]>(K_ACCOUNTS, [])
 }
 
 export function loadData(accountId: string): UserData {
   return normalise(read<Partial<UserData> | null>(K_DATA + accountId, null))
 }
 
-export function saveData(accountId: string, data: UserData): void {
-  write(K_DATA + accountId, data)
+/**
+ * Drop what the phone-only version saved for an email address. Called once
+ * that data has been carried up to the account it belongs to, and again if
+ * the account is deleted, so a stale copy is never left lying on the phone.
+ */
+export function clearLegacyFor(email: string): void {
+  const target = email.trim().toLowerCase()
+  const list = loadAccounts()
+  const gone = list.filter((a) => a.email.toLowerCase() === target)
+  if (!gone.length) return
+  const kept = list.filter((a) => a.email.toLowerCase() !== target)
+  try {
+    for (const a of gone) localStorage.removeItem(K_DATA + a.id)
+    if (kept.length) write(K_ACCOUNTS, kept)
+    else {
+      localStorage.removeItem(K_ACCOUNTS)
+      localStorage.removeItem(K_SESSION)
+      localStorage.removeItem(K_LAST)
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+/* ---------------- the passkey this phone enrolled ---------------------- */
+
+export function loadPasskeyId(uid: string): string | undefined {
+  return read<string | null>(K_PASSKEY + uid, null) ?? undefined
+}
+
+export function savePasskeyId(uid: string, credentialId: string): void {
+  write(K_PASSKEY + uid, credentialId)
+}
+
+export function clearPasskeyId(uid: string): void {
+  try {
+    localStorage.removeItem(K_PASSKEY + uid)
+  } catch {
+    /* ignore */
+  }
 }
 
 export function newId(): string {

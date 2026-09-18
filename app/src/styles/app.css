@@ -2885,3 +2885,106 @@
   font: 500 13.5px/1 var(--font-text);
   color: var(--ink);
 }
+
+/* ==================================================================
+   Accounts, phases and Pro
+================================================================== */
+
+/* The methods row becomes a scroller once there are more than three
+   accounts, so a long Pro list slides instead of squeezing. */
+.methods-many {
+  overflow-x: auto;
+  scrollbar-width: none;
+  margin-left: -22px;
+  margin-right: -22px;
+  padding-left: 22px;
+  padding-right: 22px;
+}
+
+.methods-many::-webkit-scrollbar {
+  display: none;
+}
+
+.methods-many .method-btn {
+  flex: none;
+  padding: 0 14px;
+}
+
+.methods-many[data-fade='right'] {
+  mask-image: linear-gradient(
+    to right,
+    #000 calc(100% - 50px),
+    transparent calc(100% - 22px)
+  );
+}
+
+.methods-many[data-fade='left'] {
+  mask-image: linear-gradient(to right, transparent 22px, #000 50px);
+}
+
+.methods-many[data-fade='both'] {
+  mask-image: linear-gradient(
+    to right,
+    transparent 22px,
+    #000 50px,
+    #000 calc(100% - 50px),
+    transparent calc(100% - 22px)
+  );
+}
+
+/* One block of currency fields per account on Update balance. */
+.bal-acc + .bal-acc {
+  margin-top: 6px;
+}
+
+.bal-acc .bal-inputs {
+  margin-top: 0;
+}
+
+/* The little tile carrying an account's icon in its list. */
+.acc-tile {
+  width: 30px;
+  height: 30px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9px;
+  background: rgba(20, 22, 31, 0.05);
+  color: var(--ink-2);
+}
+
+/* A phase's second line, under its total. */
+.phase-sub {
+  margin-top: 8px;
+  font: 400 13px/1.4 var(--font-text);
+  color: var(--muted);
+}
+
+/* The account kind picker reuses the priority segment, with an icon. */
+.prio-btn svg {
+  color: currentColor;
+}
+
+/* Google, beside the password fields. */
+.google-btn {
+  gap: 10px;
+}
+
+/* The switch drawn inside a tour picture. */
+.tm-switch {
+  width: 40px;
+  height: 24px;
+  flex: none;
+  border-radius: 12px;
+  padding: 3px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.tm-switch span {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+}

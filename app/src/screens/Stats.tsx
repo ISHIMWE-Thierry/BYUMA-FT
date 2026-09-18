@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import type { App } from '../useApp'
-import type { Method } from '../types'
 import {
   amountIn,
   DAY,
+  sumFrom,
   dayOffset,
   dayStamp,
   monthIndex,
@@ -11,14 +11,9 @@ import {
   topCategories,
 } from '../lib/calc'
 import { MINUS } from '../lib/money'
-import { ChevronRight, METHODS, MLABEL, WarnIcon } from '../components/icons'
+import { ChevronRight, WarnIcon } from '../components/icons'
 import { ACCENT, ChipScroller, DANGER, HideEye, VIOLET, pick } from '../components/ui'
-
-const MIXCOL: Record<Method, string> = {
-  cash: ACCENT,
-  momo: '#4b4f5e',
-  bank: '#8f92a0',
-}
+import { mixColour } from './Home'
 
 export function CurrencyTabs({ app, flush }: { app: App; flush?: boolean }) {
   return (
@@ -72,7 +67,7 @@ export function Stats({ app }: { app: App }) {
 
   const total = sumIn(rates, items, mainCur) || 1
 
-  const cats = topCategories(rates, items, mainCur, (i) => i.note || MLABEL[i.method])
+  const cats = topCategories(rates, items, mainCur, (i) => i.note || app.accName(i.acc))
   const catMax = cats.length ? cats[0].value : 1
 
   return (
@@ -133,6 +128,14 @@ export function Stats({ app }: { app: App }) {
             <ChevronRight />
           </button>
         </div>
+        {app.pro && (
+          <div className="card-footer">
+            <button type="button" className="card-footer-btn" onClick={app.goPhases}>
+              Phases
+              <ChevronRight />
+            </button>
+          </div>
+        )}
       </div>
 
       {/* ---------------- this month ---------------- */}
@@ -144,26 +147,22 @@ export function Stats({ app }: { app: App }) {
         <div className="figure-42">{hideMonth ? '••••••' : app.fmt(monthTotal)}</div>
       </div>
 
-      {/* ---------------- how you paid ---------------- */}
-      <div className="section-label">How you paid</div>
+      {/* ---------------- where it came from ---------------- */}
+      <div className="section-label">Where it came from</div>
       <div className="card-list">
-        {METHODS.map(({ k, label }) => {
-          const v = sumIn(
-            rates,
-            items.filter((i) => i.method === k),
-            mainCur,
-          )
+        {app.accounts.map((a, ix) => {
+          const v = sumFrom(rates, items, a.id, mainCur)
           const pct = Math.round((v / total) * 100) + '%'
           return (
-            <div className="paid-row" key={k}>
+            <div className="paid-row" key={a.id}>
               <div className="paid-head">
-                <span className="dot-9" style={{ background: MIXCOL[k] }} />
-                <span className="paid-label">{label}</span>
+                <span className="dot-9" style={{ background: mixColour(ix) }} />
+                <span className="paid-label">{a.name}</span>
                 <span className="paid-sum">{app.fmt(v)}</span>
                 <span className="paid-pct">{pct}</span>
               </div>
               <div className="track-8">
-                <span style={{ width: pct, background: MIXCOL[k] }} />
+                <span style={{ width: pct, background: mixColour(ix) }} />
               </div>
             </div>
           )

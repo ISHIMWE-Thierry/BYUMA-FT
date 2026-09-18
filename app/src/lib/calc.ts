@@ -1,4 +1,4 @@
-import type { Expense, Income, Method, Plan, Prio, Safety } from '../types'
+import type { Expense, Income, Phase, Plan, Prio, Safety } from '../types'
 import { convert } from './rates'
 
 export const DAY = 864e5
@@ -117,15 +117,33 @@ export function intoSafety(
    currency the single total is expressed in — they do not slice it.
 ------------------------------------------------------------------ */
 
-/** Every currency's balance, added together and expressed in `display`. */
-export function totalBalance(
+/** What one account holds, every currency added up, expressed in `display`. */
+export function accountBalance(
   rates: Record<string, number>,
-  balances: Record<string, number>,
+  balances: Balances,
+  acc: string,
   codes: string[],
   display: string,
 ): number {
+  const held = balances[acc] ?? {}
   return codes.reduce(
-    (sum, code) => sum + convert(rates, balances[code] ?? 0, code, display),
+    (sum, code) => sum + convert(rates, held[code] ?? 0, code, display),
+    0,
+  )
+}
+
+/**
+ * Everything, everywhere: every account's every currency, added up and
+ * expressed in `display`. Money in two places is still one pot.
+ */
+export function totalBalance(
+  rates: Record<string, number>,
+  balances: Balances,
+  codes: string[],
+  display: string,
+): number {
+  return Object.keys(balances).reduce(
+    (sum, acc) => sum + accountBalance(rates, balances, acc, codes, display),
     0,
   )
 }
@@ -133,23 +151,26 @@ export function totalBalance(
 /* ------------------------------------------------------------------
    Spending draws the balance down.
 
-   An expense lowers the total of the currency it was recorded in, and
-   undoing it puts the money back. "Update balance" is the correction:
-   it replaces the totals with what the person says they really have.
+   An expense lowers the account it came out of, in the currency it was
+   recorded in, and undoing it puts that money back in the same place.
+   "Update balance" is the correction: it replaces the totals with what
+   the person says they really have.
 ------------------------------------------------------------------ */
 
-type Balances = Record<string, number>
+/** Account id -> currency -> amount. */
+export type Balances = Record<string, Record<string, number>>
 
-function move(balances: Balances, code: string, by: number): Balances {
-  return { ...balances, [code]: (balances[code] ?? 0) + by }
+function move(balances: Balances, acc: string, code: string, by: number): Balances {
+  const held = balances[acc] ?? {}
+  return { ...balances, [acc]: { ...held, [code]: (held[code] ?? 0) + by } }
 }
 
 export function applyRecord(balances: Balances, item: Expense): Balances {
-  return move(balances, item.cur, -item.amount)
+  return move(balances, item.acc, item.cur, -item.amount)
 }
 
 export function applyDelete(balances: Balances, item: Expense): Balances {
-  return move(balances, item.cur, item.amount)
+  return move(balances, item.acc, item.cur, item.amount)
 }
 
 /** Only the difference moves, so editing twice does not double-count. */
@@ -157,13 +178,24 @@ export function applyEdit(
   balances: Balances,
   item: Expense,
   nextAmount: number,
+  nextAcc: string = item.acc,
 ): Balances {
-  return move(balances, item.cur, item.amount - nextAmount)
+  // Moved to another account: the whole amount goes back where it came
+  // from and comes out of the new one.
+  if (nextAcc !== item.acc) {
+    return move(
+      move(balances, item.acc, item.cur, item.amount),
+      nextAcc,
+      item.cur,
+      -nextAmount,
+    )
+  }
+  return move(balances, item.acc, item.cur, item.amount - nextAmount)
 }
 
 export function applyDeleteAll(balances: Balances, items: Expense[]): Balances {
   let out = { ...balances }
-  for (const i of items) out = move(out, i.cur, i.amount)
+  for (const i of items) out = move(out, i.acc, i.cur, i.amount)
   return out
 }
 
@@ -188,17 +220,69 @@ export function sumIn(
   return items.reduce((s, i) => s + amountIn(rates, i, display), 0)
 }
 
-export function sumByMethod(
+/** What was spent out of one account. */
+export function sumFrom(
   rates: Record<string, number>,
   items: Expense[],
-  method: Method,
+  acc: string,
   display: string,
 ): number {
   return sumIn(
     rates,
-    items.filter((i) => i.method === method),
+    items.filter((i) => i.acc === acc),
     display,
   )
+}
+
+/* ------------------------------------------------------------------
+   Phases: a named stretch of time.
+
+   A phase is drawn around days already lived, so nothing is stamped on
+   an expense — an expense belongs to a phase if its day falls inside
+   it. Move the dates and the expenses follow, which is what lets a
+   phase be named after the fact.
+------------------------------------------------------------------ */
+
+/** A moment as yyyy-mm-dd in the phone's own timezone. */
+export function dayKey(at: number): string {
+  const d = new Date(at)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+}
+
+/** An empty `to` means the phase is still running. */
+export function inPhase(phase: Phase, at: number): boolean {
+  const day = dayKey(at)
+  if (day < phase.from) return false
+  return !phase.to || day <= phase.to
+}
+
+export function phaseItems(items: Expense[], phase: Phase): Expense[] {
+  return items.filter((i) => inPhase(phase, i.at))
+}
+
+/** The phase a moment falls in. Newest start wins if two overlap. */
+export function phaseAt(phases: Phase[], at: number): Phase | null {
+  return (
+    phases
+      .filter((p) => inPhase(p, at))
+      .sort((a, b) => b.from.localeCompare(a.from))[0] ?? null
+  )
+}
+
+/** How many days the phase covers, counting both ends, up to today. */
+export function phaseDays(phase: Phase, now: number = Date.now()): number {
+  const from = new Date(phase.from + 'T12:00:00').getTime()
+  const end = phase.to ? new Date(phase.to + 'T12:00:00').getTime() : now
+  return Math.max(1, Math.round((end - from) / DAY) + 1)
+}
+
+/** Newest first, with a phase still running always at the top. */
+export function sortPhases(phases: Phase[]): Phase[] {
+  return phases.slice().sort((a, b) => {
+    if (!a.to !== !b.to) return a.to ? 1 : -1
+    return b.from.localeCompare(a.from)
+  })
 }
 
 /** Whole days between the expense and today, in the phone's own timezone. */
