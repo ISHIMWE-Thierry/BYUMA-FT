@@ -35,20 +35,52 @@ jobs:
           cache-dependency-path: app/package-lock.json
       - run: npm ci
       - run: npm test
+
+      # The Firebase config, taken from repository variables or, if that is
+      # where they were put, from secrets. A web app's config is public by
+      # design — it ships inside the page either way — so variables are the
+      # better home; firestore.rules is what actually guards the data. Both
+      # are accepted so a build never fails over which list they landed in.
+      - name: Read the Firebase config
+        id: fb
+        env:
+          API_KEY: ${{ vars.VITE_FB_API_KEY || secrets.VITE_FB_API_KEY }}
+          AUTH_DOMAIN: ${{ vars.VITE_FB_AUTH_DOMAIN || secrets.VITE_FB_AUTH_DOMAIN }}
+          PROJECT_ID: ${{ vars.VITE_FB_PROJECT_ID || secrets.VITE_FB_PROJECT_ID }}
+          STORAGE_BUCKET: ${{ vars.VITE_FB_STORAGE_BUCKET || secrets.VITE_FB_STORAGE_BUCKET }}
+          SENDER_ID: ${{ vars.VITE_FB_SENDER_ID || secrets.VITE_FB_SENDER_ID }}
+          APP_ID: ${{ vars.VITE_FB_APP_ID || secrets.VITE_FB_APP_ID }}
+        run: |
+          missing=""
+          for name in API_KEY AUTH_DOMAIN PROJECT_ID SENDER_ID APP_ID; do
+            if [ -z "${!name}" ]; then missing="$missing VITE_FB_$name"; fi
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::Missing Firebase config:$missing"
+            echo "::error::Add them at Settings -> Secrets and variables -> Actions."
+            echo "::error::Without them the published app cannot reach any account,"
+            echo "::error::so this build is stopped rather than published broken."
+            exit 1
+          fi
+          {
+            echo "api_key=$API_KEY"
+            echo "auth_domain=$AUTH_DOMAIN"
+            echo "project_id=$PROJECT_ID"
+            echo "storage_bucket=$STORAGE_BUCKET"
+            echo "sender_id=$SENDER_ID"
+            echo "app_id=$APP_ID"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Build
         run: npm run build
         env:
           BASE_PATH: /Byuma-FT-Lite/
-          # Set these under Settings -> Secrets and variables -> Actions.
-          # A Firebase web config is public by design — it ships inside the
-          # page either way — so repository *variables* are the right home
-          # for it; firestore.rules is what actually guards the data.
-          VITE_FB_API_KEY: ${{ vars.VITE_FB_API_KEY }}
-          VITE_FB_AUTH_DOMAIN: ${{ vars.VITE_FB_AUTH_DOMAIN }}
-          VITE_FB_PROJECT_ID: ${{ vars.VITE_FB_PROJECT_ID }}
-          VITE_FB_STORAGE_BUCKET: ${{ vars.VITE_FB_STORAGE_BUCKET }}
-          VITE_FB_SENDER_ID: ${{ vars.VITE_FB_SENDER_ID }}
-          VITE_FB_APP_ID: ${{ vars.VITE_FB_APP_ID }}
+          VITE_FB_API_KEY: ${{ steps.fb.outputs.api_key }}
+          VITE_FB_AUTH_DOMAIN: ${{ steps.fb.outputs.auth_domain }}
+          VITE_FB_PROJECT_ID: ${{ steps.fb.outputs.project_id }}
+          VITE_FB_STORAGE_BUCKET: ${{ steps.fb.outputs.storage_bucket }}
+          VITE_FB_SENDER_ID: ${{ steps.fb.outputs.sender_id }}
+          VITE_FB_APP_ID: ${{ steps.fb.outputs.app_id }}
       - uses: actions/configure-pages@v5
         if: github.ref == 'refs/heads/main'
       - uses: actions/upload-pages-artifact@v3
