@@ -57,6 +57,8 @@ export function localDataFor(email: string): UserData | null {
     data.plans.length > 0 ||
     data.incomes.length > 0 ||
     data.safety.amt > 0 ||
-    Object.values(data.balances).some((v) => v !== 0)
+    Object.values(data.balances).some((held) =>
+      Object.values(held ?? {}).some((v) => v !== 0),
+    )
   return used ? data : null
 }

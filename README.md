@@ -149,6 +149,12 @@ If you saved limits in an earlier version, nothing is lost: each old
 **Must** became a P1 plan called "Musts", and your old safety nets were
 pooled into the one safety net, in your main currency.
 
+**Accounts** are where your money sits. Everyone starts with **Cash** and
+**Bank**, and **MoMo** can be added in a tap if you use one. Every expense
+comes out of one account, each account holds its own amounts per currency,
+and your one balance is all of them added together. Update balance asks per
+account, so you can answer "how much is actually in the bank?".
+
 **Exchange rates.** The app fetches today's rates from the internet when
 you open it. If you have no internet it keeps the last rates it saw. You
 can type over any rate yourself, in three places — the Rates card on
@@ -162,6 +168,10 @@ box. Once you type a rate yourself, the app will not overwrite it.
 Your account lives with Firebase now, not on one handset, so the same
 email and password get you in on any phone — and what you record on one
 appears on the other.
+
+**Continue with Google.** One tap, no password to invent or remember. If
+you already had an account with the same email and a password, Google
+signs you into that same account rather than making a second one.
 
 **Your password.** What you set when you created the account. The eye at the
 right of any password box shows what you have typed, so you are never
@@ -223,7 +233,9 @@ Only needed once, by whoever publishes the app.
 
 **In the Firebase console** (console.firebase.google.com), in your project:
 
-1. **Authentication → Sign-in method → Email/Password → Enable.**
+1. **Authentication → Sign-in method → Email/Password → Enable.** Enable
+   **Google** in the same place if you want the one-tap sign-in; it asks
+   for a support email, and nothing else.
 2. **Firestore Database → Create database.** Pick a region near you and
    start in production mode; the rules below replace whatever it starts
    with.
@@ -308,7 +320,33 @@ what you want anyway.
 
 ---
 
-## 7. Where the design was not followed exactly
+## 7. Byuma Pro
+
+A switch in **Profile → Byuma Pro**. Turning it on opens a short tour of
+what it adds; turning it off keeps everything you made, just out of sight.
+Nothing about the app changes for anyone who leaves it off.
+
+**Name your own accounts.** Instead of only Cash, Bank and MoMo, name the
+places you actually keep money — Ziraat, Albaraka, a drawer at home — and
+give each one a bank, cash or phone icon. The three standard accounts keep
+their names; yours are yours.
+
+**Phases.** A phase is a stretch of time with a name: your months in
+Rwanda, then being back in Türkiye. Give it a name and a start, and leave
+the end empty while it is still running. Expenses fall into a phase by
+their date, so a phase can be drawn around days already lived — you can
+name last summer today.
+
+Open a phase to read it on its own: what it cost, how many days it ran,
+the average day, where the money came from, and what it went on. **End it
+today** closes one season so the next can begin.
+
+An account cannot be removed while expenses came out of it or money is
+still in it — quietly dropping either would make the books lie.
+
+---
+
+## 8. Where the design was not followed exactly
 
 Three deliberate changes. Everything else matches the designs.
 
@@ -372,7 +410,7 @@ Two smaller adjustments you asked for during the build:
 
 ---
 
-## 8. How it fits different phones
+## 9. How it fits different phones
 
 The design was drawn on a 390px-wide screen. Every single measurement —
 margins, padding, corner radius, text size — is stored as a fraction of
@@ -392,7 +430,7 @@ and sits in the middle of the window.
 
 ---
 
-## 9. For a developer
+## 10. For a developer
 
 ```bash
 cd app

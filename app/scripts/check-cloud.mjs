@@ -83,7 +83,7 @@ await alice.page.waitForSelector('.tour-slide', { timeout: 15000 })
 check('a new account lands in the tour', true)
 await alice.page.click('text=Skip')
 await alice.page.waitForSelector('.amount-display', { timeout: 10000 })
-await record(alice.page, '2400', 'MoMo', 'Groceries')
+await record(alice.page, '2400', 'Bank', 'Groceries')
 await record(alice.page, '12500', 'Bank')
 // The save is debounced; give it room to land.
 await alice.page.waitForTimeout(2000)
@@ -161,7 +161,65 @@ check('the old expense survived the move', carried.includes('7,700'), carried.tr
 const cleaned = await old.page.evaluate(() => localStorage.getItem('byuma.accounts.v1'))
 check('the phone-only copy was cleared afterwards', cleaned === null)
 
-console.log('\n5. The rules keep one account out of another')
+console.log('\n5. Pro: named accounts and phases')
+// Turn Pro on from Profile, which lands in its tour.
+await bob.page.click('.tab >> text="Account"')
+await bob.page.waitForSelector('text=Pro features', { timeout: 10000 })
+await bob.page.click('[aria-label="Pro features"]')
+await bob.page.waitForSelector('.tour-slide', { timeout: 10000 })
+check('turning Pro on opens its tour', true)
+await bob.page.click('text=Done')
+await bob.page.waitForSelector('text=Pro features', { timeout: 10000 })
+
+// Name an account of your own.
+await bob.page.click('.row-btn >> text=Accounts')
+await bob.page.waitForSelector('text=＋ Add an account', { timeout: 10000 })
+await bob.page.click('text=＋ Add an account')
+await bob.page.fill('input[placeholder="What is it? Ziraat, Albaraka…"]', 'Ziraat')
+await bob.page.click('text=Add account')
+await bob.page.waitForTimeout(1500)
+const accDoc = await (
+  await fetch(`${REST}/users`, { headers: { Authorization: 'Bearer owner' } })
+).json()
+const accNames = (accDoc.documents ?? [])
+  .flatMap((d) => d.fields?.accounts?.arrayValue?.values ?? [])
+  .map((v) => v.mapValue.fields.name.stringValue)
+check('the named account reached Firestore', accNames.includes('Ziraat'), accNames.join(', '))
+
+// An expense can now come out of it. Accounts is a screen you stepped
+// into, so it keeps the back chevron rather than the tab bar.
+await bob.page.click('button[aria-label="Back"]')
+await bob.page.waitForSelector('.tabbar', { timeout: 10000 })
+await bob.page.click('.tab >> text="Home"')
+await bob.page.waitForSelector('.amount-display')
+await record(bob.page, '900', 'Ziraat')
+await bob.page.waitForTimeout(1500)
+const afterZ = await (
+  await fetch(`${REST}/users`, { headers: { Authorization: 'Bearer owner' } })
+).json()
+const spentFrom = (afterZ.documents ?? [])
+  .flatMap((d) => d.fields?.items?.arrayValue?.values ?? [])
+  .map((v) => v.mapValue.fields.acc.stringValue)
+check('an expense records against it', spentFrom.some((a) => a !== 'cash' && a !== 'bank'),
+  spentFrom.join(', '))
+
+// A phase drawn around days already lived.
+await bob.page.click('.tab >> text="Analytics"')
+await bob.page.waitForSelector('text=Where the money went', { timeout: 10000 })
+await bob.page.click('.card-footer-btn >> text=Phases')
+await bob.page.waitForSelector('text=＋ Add a phase', { timeout: 10000 })
+await bob.page.click('text=＋ Add a phase')
+await bob.page.fill('input[placeholder="What was it? Rwanda, Back in Türkiye…"]', 'Rwanda')
+await bob.page.fill('input[aria-label="Phase start"]', '2020-01-01')
+await bob.page.click('text=Add phase')
+await bob.page.waitForSelector('.plan-row', { timeout: 10000 })
+check('the phase is listed', true)
+await bob.page.click('.plan-row >> text=Rwanda')
+await bob.page.waitForSelector('text=Spent in this phase', { timeout: 10000 })
+const phaseTotal = await bob.page.textContent('.figure-42')
+check('it totals the expenses inside it', /[1-9]/.test(phaseTotal), phaseTotal.trim())
+
+console.log('\n6. The rules keep one account out of another')
 const uid = stored?.name.split('/').pop()
 const open = await fetch(`${REST}/users/${uid}`)
 check('an unauthenticated read is refused', open.status === 403 || open.status === 401,

@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type {
   Account,
+  Phase,
+  User,
   ConfirmState,
   Expense,
   Income,
@@ -30,6 +32,7 @@ import {
   clearLegacyFor,
   clearPasskeyId,
   freshData,
+  STANDARD,
   loadPasskeyId,
   newId,
   rememberCategory,
@@ -44,12 +47,14 @@ import {
   onAuthStateChanged,
   reauthenticateWithCredential,
   sendPasswordResetEmail,
+  GoogleAuthProvider,
   signInWithEmailAndPassword,
+  signInWithPopup,
   signOut,
   updatePassword,
   updateProfile,
   verifyBeforeUpdateEmail,
-  type User,
+  type User as FbUser,
 } from 'firebase/auth'
 
 /** How long each consequential action holds the freeze, from the spec. */
@@ -135,7 +140,7 @@ function authMessage(err: unknown): string {
 }
 
 /** The Firebase user as the app holds it, plus this phone's passkey. */
-function accountFrom(user: User): Account {
+function userFrom(user: FbUser): User {
   return {
     id: user.uid,
     name: user.displayName || (user.email ?? '').split('@')[0] || 'You',
@@ -149,6 +154,8 @@ export interface ExtraState {
   cur: string
   amt: string
   rate: string
+  /** Which account the converted money lands in. */
+  into?: string
 }
 
 /** A plan or income being typed. id is null while it is a new one. */
@@ -170,11 +177,24 @@ export interface IncomeForm {
   counted: boolean
 }
 
+export interface AccForm {
+  id: string | null
+  name: string
+  kind: Method
+}
+
+export interface PhaseForm {
+  id: string | null
+  name: string
+  from: string
+  to: string
+}
+
 /** Screens the phone's back button leaves the app from, not walks back from. */
 const ROOTS: Screen[] = ['home', 'signin', 'signup', 'error']
 
 export function useApp() {
-  const [account, setAccount] = useState<Account | null>(null)
+  const [user, setUser] = useState<User | null>(null)
   const [data, setData] = useState<UserData>(freshData)
   const [ready, setReady] = useState(false)
 
@@ -183,7 +203,7 @@ export function useApp() {
 
   // recorder
   const [amt, setAmt] = useState('')
-  const [method, setMethod] = useState<Method | null>(null)
+  const [acc, setAcc] = useState<string | null>(null)
   const [note, setNote] = useState('')
 
   // forms
@@ -204,6 +224,7 @@ export function useApp() {
 
   // money screens
   const [balCur, setBalCur] = useState('RWF')
+  // Keyed "accountId|currency", because a balance now lives in a place.
   const [fBal, setFBal] = useState<Record<string, string>>({})
   const [planForm, setPlanForm] = useState<PlanForm | null>(null)
   const [incomeForm, setIncomeForm] = useState<IncomeForm | null>(null)
@@ -216,10 +237,15 @@ export function useApp() {
   const [eAmt, setEAmt] = useState('')
   const [eNote, setENote] = useState('')
   const [eDetail, setEDetail] = useState('')
-  const [eMethod, setEMethod] = useState<Method>('cash')
+  const [eAcc, setEAcc] = useState<string>('cash')
   // The editor can move an expense to another day; recording always stamps
   // the moment it happened.
   const [eDate, setEDate] = useState(today())
+
+  // accounts and phases
+  const [accForm, setAccForm] = useState<AccForm | null>(null)
+  const [phaseForm, setPhaseForm] = useState<PhaseForm | null>(null)
+  const [viewPhase, setViewPhase] = useState<string | null>(null)
 
   // locking the app with the phone
   const [canUsePhone, setCanUsePhone] = useState(false)
@@ -237,6 +263,20 @@ export function useApp() {
 
   const fmt = useCallback((n: number) => fmtMoney(n, mainCur), [mainCur])
   const fmtIn = useCallback((n: number, code: string) => fmtMoney(n, code), [])
+
+  /** Pro is a switch on the data, so it follows the person to any phone. */
+  const pro = data.settings.pro
+  const accounts = data.accounts.length ? data.accounts : freshData().accounts
+
+  /** The name to show for an account id, even one since removed. */
+  const accName = useCallback(
+    (id: string) => accounts.find((a) => a.id === id)?.name ?? 'Account',
+    [accounts],
+  )
+  const accKind = useCallback(
+    (id: string): Method => accounts.find((a) => a.id === id)?.kind ?? 'cash',
+    [accounts],
+  )
 
   /* ---------------- helpers ---------------- */
 
@@ -296,12 +336,12 @@ export function useApp() {
    * the server when there is internet and from the phone's saved copy when
    * there is not.
    */
-  const openFor = useCallback(async (user: User) => {
-    const acc = accountFrom(user)
+  const openFor = useCallback(async (fbUser: FbUser) => {
+    const acc = userFrom(fbUser)
     let d: UserData
     let carried = false
     try {
-      const cloud = await loadCloud(user.uid)
+      const cloud = await loadCloud(fbUser.uid)
       if (cloud) {
         d = cloud
       } else {
@@ -310,7 +350,7 @@ export function useApp() {
         // that history becomes the account's opening data.
         const legacy = localDataFor(acc.email)
         d = legacy ?? freshData()
-        await saveCloud(user.uid, d)
+        await saveCloud(fbUser.uid, d)
         if (legacy) {
           clearLegacyFor(acc.email)
           carried = true
@@ -322,7 +362,7 @@ export function useApp() {
       d = freshData()
     }
     justLoaded.current = true
-    setAccount(acc)
+    setUser(acc)
     setData(d)
     setBalCur(d.selCurs.includes(d.mainCur) ? d.mainCur : d.selCurs[0])
     // A passkey enrolled on this phone turns it into a lock on the app
@@ -344,10 +384,10 @@ export function useApp() {
       return
     }
     void passkeyAvailable().then(setCanUsePhone)
-    return onAuthStateChanged(auth, (user) => {
-      if (user) void openFor(user)
+    return onAuthStateChanged(auth, (fbUser) => {
+      if (fbUser) void openFor(fbUser)
       else {
-        setAccount(null)
+        setUser(null)
         setData(freshData())
         setScreen((s) => (s === 'signup' ? 'signup' : 'signin'))
         setReady(true)
@@ -361,14 +401,14 @@ export function useApp() {
   // held-down key is one save rather than ten. Firestore queues the write
   // when there is no internet and sends it on reconnection.
   useEffect(() => {
-    if (!ready || !account) return
+    if (!ready || !user) return
     if (justLoaded.current) {
       justLoaded.current = false
       return
     }
     dirty.current = true
     const t = window.setTimeout(() => {
-      void saveCloud(account.id, data)
+      void saveCloud(user.id, data)
         .then(() => {
           dirty.current = false
         })
@@ -378,16 +418,16 @@ export function useApp() {
         })
     }, 700)
     return () => window.clearTimeout(t)
-  }, [ready, account, data])
+  }, [ready, user, data])
 
   // Coming back to the app is when another phone's work should appear. Only
   // when nothing local is waiting to be written, so a pull never wins over
   // an edit that has not gone up yet.
   useEffect(() => {
-    if (!ready || !account) return
+    if (!ready || !user) return
     const onShow = () => {
       if (document.visibilityState !== 'visible' || dirty.current) return
-      void loadCloud(account.id)
+      void loadCloud(user.id)
         .then((cloud) => {
           if (!cloud || dirty.current) return
           justLoaded.current = true
@@ -397,12 +437,12 @@ export function useApp() {
     }
     document.addEventListener('visibilitychange', onShow)
     return () => document.removeEventListener('visibilitychange', onShow)
-  }, [ready, account])
+  }, [ready, user])
 
   /* ---------------- live rates ---------------- */
 
   useEffect(() => {
-    if (!ready || !account) return
+    if (!ready || !user) return
     const ctl = new AbortController()
     let cancelled = false
     void (async () => {
@@ -424,7 +464,7 @@ export function useApp() {
     }
     // Refreshing once per sign-in is enough; the person can always edit a rate.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, account?.id])
+  }, [ready, user?.id])
 
   useEffect(() => {
     return () => {
@@ -550,6 +590,39 @@ export function useApp() {
     }
   }, [fEmail, fPass, fail, resetForms, showToast])
 
+  /**
+   * Google, in a popup rather than a redirect: a redirect loses the page
+   * and comes back through a round trip that installed web apps handle
+   * badly. If the popup is blocked the person is told, rather than left
+   * looking at a screen that did nothing.
+   *
+   * Someone who first signed up with a password and then uses Google on
+   * the same address is one account, not two — Firebase links them when
+   * the address is verified, which Google's always is.
+   */
+  const signInWithGoogle = useCallback(async () => {
+    if (!auth) return
+    setBusy('Signing in')
+    try {
+      const provider = new GoogleAuthProvider()
+      provider.setCustomParameters({ prompt: 'select_account' })
+      await signInWithPopup(auth, provider)
+      resetForms()
+      showToast('Signed in.', 'ok')
+    } catch (err) {
+      const code = (err as { code?: string })?.code ?? ''
+      if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') {
+        // They shut the window themselves; nothing to report.
+      } else if (code === 'auth/popup-blocked') {
+        fail('pass', 'Your browser blocked the Google window. Allow it and try again.')
+      } else {
+        fail('pass', authMessage(err))
+      }
+    } finally {
+      setBusy(null)
+    }
+  }, [fail, resetForms, showToast])
+
   const askSignOut = useCallback(() => {
     setConfirm({
       title: 'Sign out?',
@@ -573,39 +646,39 @@ export function useApp() {
    * of it. Passing it opens the app; failing it leaves the lock in place.
    */
   const unlockWithPhone = useCallback(async () => {
-    if (!account?.passkeyId) return
-    const ok = await verifyPasskey(account.passkeyId)
+    if (!user?.passkeyId) return
+    const ok = await verifyPasskey(user.passkeyId)
     if (!ok) return fail('pass', 'That did not match. Try again.')
     freeze('Opening', FREEZE.unlock, () => {
       setScreen('home')
       setBack('home')
       clearErr()
     })
-  }, [account, fail, freeze, clearErr])
+  }, [user, fail, freeze, clearErr])
 
   /** Ask the phone to guard this account, from Profile. */
   const enablePhoneUnlock = useCallback(async () => {
-    if (!account) return
-    const id = await registerPasskey(account.id, account.email, account.name)
+    if (!user) return
+    const id = await registerPasskey(user.id, user.email, user.name)
     if (!id) return showToast('Your phone did not confirm it.')
-    savePasskeyId(account.id, id)
-    setAccount({ ...account, passkeyId: id })
+    savePasskeyId(user.id, id)
+    setUser({ ...user, passkeyId: id })
     showToast('Phone lock is on.', 'ok')
-  }, [account, showToast])
+  }, [user, showToast])
 
   const disablePhoneUnlock = useCallback(() => {
-    if (!account) return
+    if (!user) return
     setConfirm({
       title: 'Turn off phone lock?',
       body: 'The app will open without asking for your fingerprint.',
       cta: 'Turn off',
       yes: () => {
-        clearPasskeyId(account.id)
-        setAccount({ ...account, passkeyId: undefined })
+        clearPasskeyId(user.id)
+        setUser({ ...user, passkeyId: undefined })
         showToast('Phone lock is off.', 'ok')
       },
     })
-  }, [account, showToast])
+  }, [user, showToast])
 
   /* ---------------- forgot password ---------------- */
 
@@ -649,11 +722,11 @@ export function useApp() {
 
   const record = useCallback(() => {
     if (num <= 0) return
-    if (!method) return showToast('Pick cash, MoMo or bank first.')
+    if (!acc) return showToast('Pick where it came from first.')
     const item: Expense = {
       id: newId(),
       amount: num,
-      method,
+      acc,
       note: note.trim(),
       cur: mainCur,
       at: Date.now(),
@@ -669,9 +742,9 @@ export function useApp() {
     }))
     setAmt('')
     setNote('')
-    setMethod(null)
+    setAcc(null)
     showToast('Recorded ' + fmt(num) + '.', 'ok')
-  }, [num, method, note, mainCur, fmt, showToast])
+  }, [num, acc, note, mainCur, fmt, showToast])
 
   const askDelete = useCallback(
     (item: Expense) => {
@@ -681,7 +754,7 @@ export function useApp() {
         body:
           fmtIn(item.amount, item.cur) +
           ' · ' +
-          (item.note || { cash: 'Cash', momo: 'MoMo', bank: 'Bank' }[item.method]),
+          (item.note || accName(item.acc)),
         cta: 'Delete',
         danger: true,
         yes: () =>
@@ -709,7 +782,7 @@ export function useApp() {
       setEAmt(String(item.amount))
       setENote(item.note)
       setEDetail(item.detail ?? '')
-      setEMethod(item.method)
+      setEAcc(item.acc)
       setEDate(dayInput(item.at))
     },
     [editId],
@@ -731,19 +804,20 @@ export function useApp() {
                 amount: v,
                 note: eNote.trim(),
                 detail: eDetail.trim() || undefined,
-                method: eMethod,
+                acc: eAcc,
                 at: atOn(eDate, item.at),
               }
             : x,
         ),
-        // Move the balance by the difference only.
-        balances: applyEdit(d.balances, item, v),
+        // Only the difference moves — unless it changed account, and then
+        // the whole amount goes back and comes out of the new one.
+        balances: applyEdit(d.balances, item, v, eAcc),
         cats: rememberCategory(d.cats, eNote),
       }))
       setEditId(null)
       showToast('Expense updated.', 'ok')
     },
-    [eAmt, eNote, eDetail, eMethod, eDate, showToast],
+    [eAmt, eNote, eDetail, eAcc, eDate, showToast],
   )
 
   const askClear = useCallback(() => {
@@ -775,14 +849,19 @@ export function useApp() {
   const goBalance = useCallback(
     (from: Screen = 'stats') => {
       const next: Record<string, string> = {}
-      for (const c of selCurs) next[c] = data.balances[c] ? String(data.balances[c]) : ''
+      for (const a of data.accounts) {
+        for (const c of selCurs) {
+          const held = data.balances[a.id]?.[c]
+          next[a.id + '|' + c] = held ? String(held) : ''
+        }
+      }
       setFBal(next)
       setExtra(null)
       clearErr()
       setScreen('balance')
       setBack(from)
     },
-    [selCurs, data.balances, clearErr],
+    [selCurs, data.accounts, data.balances, clearErr],
   )
 
   /* ---------------- plans, safety net, expected income ---------------- */
@@ -947,11 +1026,18 @@ export function useApp() {
   }, [])
 
   const saveBalance = useCallback(() => {
-    const vals: Record<string, number> = { ...data.balances }
-    for (const c of selCurs) {
-      const raw = (fBal[c] ?? '').trim()
-      if (raw && isNaN(Number(raw))) return fail('bal' + c, 'That is not a number.')
-      vals[c] = Number(raw) || 0
+    const vals: Record<string, Record<string, number>> = {}
+    let anything = 0
+    for (const a of data.accounts) {
+      const held: Record<string, number> = {}
+      for (const c of selCurs) {
+        const key = a.id + '|' + c
+        const raw = (fBal[key] ?? '').trim()
+        if (raw && isNaN(Number(raw))) return fail('bal' + key, 'That is not a number.')
+        held[c] = Number(raw) || 0
+        anything += held[c]
+      }
+      vals[a.id] = held
     }
     let added = 0
     if (extra && extra.amt) {
@@ -960,10 +1046,15 @@ export function useApp() {
       if (a > 0 && r <= 0) return fail('exrate', 'Set a rate first.')
       added = a * r
     }
-    if (!selCurs.some((c) => vals[c] > 0) && added <= 0) {
-      return fail('bal' + selCurs[0], 'Enter at least one total.')
+    if (anything <= 0 && added <= 0) {
+      return fail('bal' + data.accounts[0].id + '|' + selCurs[0], 'Enter at least one total.')
     }
-    if (added > 0) vals[mainCur] = (vals[mainCur] ?? 0) + added
+    // Money brought in from another currency lands in the first account,
+    // which is where the person is standing when they add it.
+    if (added > 0) {
+      const into = extra?.into && vals[extra.into] ? extra.into : data.accounts[0].id
+      vals[into] = { ...vals[into], [mainCur]: (vals[into]?.[mainCur] ?? 0) + added }
+    }
 
     freeze('Saving balance', FREEZE.saveBalance, () => {
       setData((d) => ({ ...d, balances: vals }))
@@ -976,7 +1067,7 @@ export function useApp() {
         'ok',
       )
     })
-  }, [data.balances, selCurs, fBal, extra, mainCur, fail, freeze, showToast, fmtIn])
+  }, [data.accounts, selCurs, fBal, extra, mainCur, fail, freeze, showToast, fmtIn])
 
   /* ---------------- rates ---------------- */
 
@@ -1104,14 +1195,14 @@ export function useApp() {
       return fail('name', authMessage(err))
     }
     freeze('Saving', FREEZE.saveName, () => {
-      setAccount((a) => (a ? { ...a, name: next } : a))
+      setUser((a) => (a ? { ...a, name: next } : a))
       setScreen('profile')
       resetForms()
       showToast('Name changed.', 'ok')
     })
   }, [fName, fail, freeze, resetForms, showToast])
 
-  /** Prove it is really them before a change that touches the account. */
+  /** Prove it is really them before a change that touches the user. */
   const reauth = useCallback(async (password: string) => {
     const user = auth?.currentUser
     if (!user?.email) throw new Error('not signed in')
@@ -1123,15 +1214,15 @@ export function useApp() {
 
   /**
    * Changing the email is the one thing that does not take effect at once:
-   * Firebase sends a link to the new address first, and the account moves
+   * Firebase sends a link to the new address first, and the user moves
    * over only when that link is opened. That is what stops someone typing
    * an address they cannot read and locking themselves out.
    */
   const saveEmail = useCallback(async () => {
-    const user = auth?.currentUser
-    if (!account || !user) return
+    const fbUser = auth?.currentUser
+    if (!user || !fbUser) return
     if (!emailOk(fEmail)) return fail('email', 'That email does not look right.')
-    if (fEmail.trim().toLowerCase() === account.email.toLowerCase()) {
+    if (fEmail.trim().toLowerCase() === user.email.toLowerCase()) {
       return fail('email', 'That is already your email.')
     }
     if (!fPass) return fail('pass', 'Enter your password to confirm.')
@@ -1149,7 +1240,7 @@ export function useApp() {
         void (async () => {
           setBusy('Sending')
           try {
-            await verifyBeforeUpdateEmail(user, next)
+            await verifyBeforeUpdateEmail(fbUser, next)
             setScreen('profile')
             resetForms()
             showToast('Link sent. Open it to finish.', 'ok')
@@ -1161,11 +1252,11 @@ export function useApp() {
         })()
       },
     })
-  }, [account, fEmail, fPass, fail, reauth, resetForms, showToast])
+  }, [user, fEmail, fPass, fail, reauth, resetForms, showToast])
 
   const savePassword = useCallback(async () => {
-    const user = auth?.currentUser
-    if (!account || !user) return
+    const fbUser = auth?.currentUser
+    if (!user || !fbUser) return
     if (!fPass) return fail('pass', 'Enter your current password.')
     if (fNew.length < 8) return fail('new', 'New password needs 8 characters.')
     if (fNew !== fNew2) return fail('new2', 'The two new passwords do not match.')
@@ -1184,7 +1275,7 @@ export function useApp() {
         void (async () => {
           setBusy('Saving')
           try {
-            await updatePassword(user, next)
+            await updatePassword(fbUser, next)
             setScreen('profile')
             resetForms()
             showToast('Password changed.', 'ok')
@@ -1196,32 +1287,32 @@ export function useApp() {
         })()
       },
     })
-  }, [account, fPass, fNew, fNew2, fail, reauth, resetForms, showToast])
+  }, [user, fPass, fNew, fNew2, fail, reauth, resetForms, showToast])
 
   /**
-   * The whole account, gone: the saved data, then the Firebase account
+   * The whole user, gone: the saved data, then the Firebase user
    * itself. Said plainly before anything happens, and it now means every
    * phone rather than only this one.
    */
   const askDeleteAccount = useCallback(() => {
-    if (!account) return
+    if (!user) return
     setConfirm({
       title: 'Delete your account?',
       body:
         'Your account and everything saved under ' +
-        account.email +
+        user.email +
         ' are deleted, on every phone. This cannot be undone.',
-      cta: 'Delete account',
+      cta: 'Delete user',
       danger: true,
       yes: () => {
         void (async () => {
-          setBusy('Deleting account')
+          setBusy('Deleting user')
           const user = auth?.currentUser
           if (!user) return setBusy(null)
           try {
             await deleteCloud(user.uid)
             clearPasskeyId(user.uid)
-            clearLegacyFor(account.email)
+            clearLegacyFor(user?.email ?? '')
             await deleteUser(user)
             resetForms()
             showToast('Account deleted.', 'ok')
@@ -1233,7 +1324,7 @@ export function useApp() {
         })()
       },
     })
-  }, [account, resetForms, showToast])
+  }, [user, resetForms, showToast])
 
   const setSetting = useCallback((key: keyof Settings) => {
     setData((d) => ({ ...d, settings: { ...d.settings, [key]: !d.settings[key] } }))
@@ -1244,6 +1335,206 @@ export function useApp() {
     setBalCur(code)
   }, [])
 
+  /* ---------------- accounts ---------------- */
+
+  const goAccounts = useCallback(() => {
+    setAccForm(null)
+    clearErr()
+    setScreen('accounts')
+    setBack('profile')
+  }, [clearErr])
+
+  /** Open the form empty for a new account, or filled to rename one. */
+  const openAccForm = useCallback(
+    (a?: Account) => {
+      setAccForm((cur) => {
+        if (a && cur && cur.id === a.id) return null
+        return a
+          ? { id: a.id, name: a.name, kind: a.kind }
+          : { id: null, name: '', kind: 'bank' as Method }
+      })
+      clearErr()
+    },
+    [clearErr],
+  )
+
+  const saveAcc = useCallback(() => {
+    if (!accForm) return
+    const name = accForm.name.trim()
+    if (!name) return fail('accname', 'Give it a name.')
+    if (name.length > 18) return fail('accname', 'Keep it under 18 characters.')
+    const clash = data.accounts.some(
+      (a) => a.id !== accForm.id && a.name.toLowerCase() === name.toLowerCase(),
+    )
+    if (clash) return fail('accname', 'You already have one with that name.')
+
+    setData((d) => ({
+      ...d,
+      accounts: accForm.id
+        ? d.accounts.map((a) =>
+            a.id === accForm.id ? { ...a, name, kind: accForm.kind } : a,
+          )
+        : [...d.accounts, { id: newId(), name, kind: accForm.kind, custom: true }],
+    }))
+    setAccForm(null)
+    showToast(accForm.id ? 'Account updated.' : name + ' added.', 'ok')
+  }, [accForm, data.accounts, fail, showToast])
+
+  /** One of the three standard accounts, put back on the list. */
+  const addStandard = useCallback(
+    (id: string) => {
+      const std = STANDARD.find((a) => a.id === id)
+      if (!std) return
+      setData((d) =>
+        d.accounts.some((a) => a.id === id)
+          ? d
+          : { ...d, accounts: [...d.accounts, { ...std }] },
+      )
+      showToast(std.name + ' added.', 'ok')
+    },
+    [showToast],
+  )
+
+  /**
+   * Removing an account is refused while money or expenses still point at
+   * it — silently dropping either would make the books lie.
+   */
+  const askRemoveAcc = useCallback(
+    (a: Account) => {
+      if (data.accounts.length <= 1) return showToast('Keep at least one account.')
+      const spent = data.items.some((i) => i.acc === a.id)
+      if (spent) return showToast('Expenses came out of ' + a.name + '. It stays.')
+      const held = Object.values(data.balances[a.id] ?? {}).some((v) => v !== 0)
+      if (held) return showToast('Move what is in ' + a.name + ' to zero first.')
+      setConfirm({
+        title: 'Remove ' + a.name + '?',
+        body: 'Nothing has been spent from it and it holds nothing.',
+        cta: 'Remove',
+        danger: true,
+        yes: () => {
+          setData((d) => {
+            const balances = { ...d.balances }
+            delete balances[a.id]
+            return { ...d, accounts: d.accounts.filter((x) => x.id !== a.id), balances }
+          })
+          setAccForm(null)
+          showToast(a.name + ' removed.', 'ok')
+        },
+      })
+    },
+    [data.accounts.length, data.items, data.balances, showToast],
+  )
+
+  /* ---------------- phases ---------------- */
+
+  const goPhases = useCallback(() => {
+    setPhaseForm(null)
+    clearErr()
+    setScreen('phases')
+    setBack('stats')
+  }, [clearErr])
+
+  const openPhase = useCallback(
+    (id: string) => {
+      setViewPhase(id)
+      setScreen('phase')
+      setBack('phases')
+    },
+    [],
+  )
+
+  const openPhaseForm = useCallback(
+    (ph?: Phase) => {
+      setPhaseForm((cur) => {
+        if (ph && cur && cur.id === ph.id) return null
+        return ph
+          ? { id: ph.id, name: ph.name, from: ph.from, to: ph.to }
+          : { id: null, name: '', from: today(), to: '' }
+      })
+      clearErr()
+    },
+    [clearErr],
+  )
+
+  const savePhase = useCallback(() => {
+    if (!phaseForm) return
+    const name = phaseForm.name.trim()
+    if (!name) return fail('phname', 'Give the phase a name.')
+    if (!phaseForm.from) return fail('phfrom', 'Say when it started.')
+    if (phaseForm.to && phaseForm.to < phaseForm.from) {
+      return fail('phto', 'It cannot end before it started.')
+    }
+    const saved: Phase = {
+      id: phaseForm.id ?? newId(),
+      name,
+      from: phaseForm.from,
+      to: phaseForm.to,
+    }
+    setData((d) => ({
+      ...d,
+      phases: phaseForm.id
+        ? d.phases.map((x) => (x.id === phaseForm.id ? saved : x))
+        : [...d.phases, saved],
+    }))
+    setPhaseForm(null)
+    showToast(phaseForm.id ? 'Phase updated.' : name + ' added.', 'ok')
+  }, [phaseForm, fail, showToast])
+
+  /** Close a running phase today, which is how one season becomes the last. */
+  const endPhase = useCallback(
+    (ph: Phase) => {
+      setData((d) => ({
+        ...d,
+        phases: d.phases.map((x) => (x.id === ph.id ? { ...x, to: today() } : x)),
+      }))
+      showToast(ph.name + ' ended today.', 'ok')
+    },
+    [showToast],
+  )
+
+  const askRemovePhase = useCallback(
+    (ph: Phase) => {
+      setConfirm({
+        title: 'Remove ' + ph.name + '?',
+        body: 'The expenses stay exactly where they are — only the name for that stretch goes.',
+        cta: 'Remove',
+        danger: true,
+        yes: () => {
+          setData((d) => ({ ...d, phases: d.phases.filter((x) => x.id !== ph.id) }))
+          setPhaseForm(null)
+          if (viewPhase === ph.id) setScreen('phases')
+          showToast('Phase removed.', 'ok')
+        },
+      })
+    },
+    [viewPhase, showToast],
+  )
+
+  /* ---------------- pro ---------------- */
+
+  const goPro = useCallback(() => {
+    setScreen('pro')
+    setBack('profile')
+  }, [])
+
+  /**
+   * Turning Pro on or off only flips a switch: the accounts and phases
+   * already made are kept either way, so it can be tried and put back
+   * without losing anything.
+   */
+  const setPro = useCallback(
+    (on: boolean) => {
+      setData((d) => ({ ...d, settings: { ...d.settings, pro: on } }))
+      if (on) {
+        setScreen('pro')
+        setBack('profile')
+      } else {
+        showToast('Pro is off. Your accounts and phases are kept.', 'ok')
+      }
+    },
+    [showToast],
+  )
+
   /* ---------------- error screen ---------------- */
 
   const retry = useCallback(() => {
@@ -1251,9 +1542,9 @@ export function useApp() {
     // itself has to be fixed — so the screen stays put and says why.
     if (!isConfigured) return
     freeze('Trying again', FREEZE.retry, () => {
-      setScreen(account ? 'home' : 'signin')
+      setScreen(user ? 'home' : 'signin')
     })
-  }, [freeze, account])
+  }, [freeze, user])
 
   /* ---------------- chip order ---------------- */
 
@@ -1281,7 +1572,7 @@ export function useApp() {
   return {
     // state
     ready,
-    account,
+    user,
     data,
     screen,
     back,
@@ -1296,7 +1587,7 @@ export function useApp() {
     shortfall,
     amt,
     num,
-    method,
+    acc,
     note,
     fName,
     fEmail,
@@ -1319,17 +1610,22 @@ export function useApp() {
     eAmt,
     eNote,
     eDetail,
-    eMethod,
+    eAcc,
     eDate,
     catFreq,
     orderedCats,
     canUsePhone,
     canUseCloud: isConfigured,
     sent,
+    pro,
+    accounts,
+    accForm,
+    phaseForm,
+    viewPhase,
 
     // setters
     setAmt,
-    setMethod,
+    setAcc,
     setNote,
     setFName,
     setFEmail,
@@ -1341,11 +1637,13 @@ export function useApp() {
     setFBal,
     setPlanForm,
     setIncomeForm,
+    setAccForm,
+    setPhaseForm,
     setExtra,
     setEAmt,
     setENote,
     setEDetail,
-    setEMethod,
+    setEAcc,
     setEDate,
     setBalCur,
     setConfirm,
@@ -1354,6 +1652,8 @@ export function useApp() {
     // helpers
     fmt,
     fmtIn,
+    accName,
+    accKind,
     shownRate,
     editRate,
     canRemoveCur,
@@ -1363,6 +1663,19 @@ export function useApp() {
     goBack,
     goBalance,
     goPlans,
+    goAccounts,
+    openAccForm,
+    saveAcc,
+    addStandard,
+    askRemoveAcc,
+    goPhases,
+    openPhase,
+    openPhaseForm,
+    savePhase,
+    endPhase,
+    askRemovePhase,
+    goPro,
+    setPro,
     openPlanForm,
     savePlan,
     askDeletePlan,
@@ -1376,6 +1689,7 @@ export function useApp() {
     setSafetyCur,
     signUp,
     signIn,
+    signInWithGoogle,
     askSignOut,
     unlockWithPhone,
     enablePhoneUnlock,

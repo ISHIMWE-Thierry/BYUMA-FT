@@ -72,3 +72,66 @@ describe('reading an old save', () => {
     expect(d.plans.map((p) => p.id)).toEqual(['a'])
   })
 })
+
+describe('accounts arrive without disturbing what was there', () => {
+  it('moves a balance with nowhere named onto Cash', () => {
+    const d = normalise({
+      selCurs: ['RWF', 'USD'],
+      mainCur: 'RWF',
+      balances: { RWF: 840_000, USD: 1_240 } as never,
+    })
+    expect(d.balances.cash).toEqual({ RWF: 840_000, USD: 1_240 })
+    // The money is all still there, just in a place now.
+    expect(d.accounts.map((a) => a.id)).toContain('cash')
+  })
+
+  it('keeps a balance that already knows where it sits', () => {
+    const d = normalise({
+      balances: { cash: { RWF: 500 }, ziraat: { TL: 12_000 } },
+      accounts: [
+        { id: 'cash', name: 'Cash', kind: 'cash' },
+        { id: 'ziraat', name: 'Ziraat', kind: 'bank', custom: true },
+      ],
+    })
+    expect(d.balances.ziraat).toEqual({ TL: 12_000 })
+    expect(d.accounts).toHaveLength(2)
+  })
+
+  it('reads an old expense as coming from the account of the same name', () => {
+    const d = normalise({
+      items: [
+        { id: 'a', amount: 2400, method: 'momo', note: '', cur: 'RWF', at: 1 },
+        { id: 'b', amount: 850, method: 'cash', note: '', cur: 'RWF', at: 2 },
+      ] as never,
+    })
+    expect(d.items.map((i) => i.acc)).toEqual(['momo', 'cash'])
+  })
+
+  it('keeps MoMo on the list for someone who has used it', () => {
+    const d = normalise({
+      items: [{ id: 'a', amount: 1, method: 'momo', note: '', cur: 'RWF', at: 1 }] as never,
+    })
+    expect(d.accounts.map((a) => a.id)).toContain('momo')
+  })
+
+  it('gives a new person Cash and Bank, and no MoMo', () => {
+    const d = normalise(null)
+    expect(d.accounts.map((a) => a.id)).toEqual(['cash', 'bank'])
+  })
+
+  it('starts everyone outside Pro', () => {
+    expect(normalise(null).settings.pro).toBe(false)
+    expect(normalise({ settings: { pro: true } } as never).settings.pro).toBe(true)
+  })
+
+  it('drops a phase with no name or no start', () => {
+    const d = normalise({
+      phases: [
+        { id: 'a', name: 'Rwanda', from: '2026-06-01', to: '2026-09-02' },
+        { id: 'b', name: '', from: '2026-01-01', to: '' },
+        { id: 'c', name: 'Nowhere', from: '', to: '' },
+      ] as never,
+    })
+    expect(d.phases.map((p) => p.name)).toEqual(['Rwanda'])
+  })
+})

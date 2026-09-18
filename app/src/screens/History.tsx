@@ -6,9 +6,7 @@ import { groupTyped, sanitizeAmount } from '../lib/money'
 import {
   BinIcon,
   CrossIcon,
-  METHODS,
   MICON,
-  MLABEL,
   PlusIcon,
 } from '../components/icons'
 import { ACCENT, LINE, pick } from '../components/ui'
@@ -85,7 +83,7 @@ export function History({ app }: { app: App }) {
 }
 
 function Row({ app, item, first }: { app: App; item: Expense; first: boolean }) {
-  const Icon = MICON[item.method]
+  const Icon = MICON[app.accKind(item.acc)]
   const editing = app.editId === item.id
   const shown = amountIn(app.data.rates, item, app.mainCur)
 
@@ -96,12 +94,14 @@ function Row({ app, item, first }: { app: App; item: Expense; first: boolean }) 
           className="tl-tile"
           style={{
             background:
-              item.method === 'cash' ? 'rgba(20,22,31,.05)' : 'rgba(20,22,31,.08)',
+              app.accKind(item.acc) === 'cash'
+                ? 'rgba(20,22,31,.05)'
+                : 'rgba(20,22,31,.08)',
           }}
         >
           <Icon />
         </span>
-        <span className="tl-note">{item.note || MLABEL[item.method]}</span>
+        <span className="tl-note">{item.note || app.accName(item.acc)}</span>
         <span className="tl-amount">{app.fmt(shown)}</span>
         <button
           type="button"
@@ -152,16 +152,19 @@ function Row({ app, item, first }: { app: App; item: Expense; first: boolean }) 
               onChange={(e) => app.setEDate(e.target.value)}
             />
           </div>
+          {/* Moving an expense to another account moves the money with
+              it: the whole amount goes back where it was and comes out of
+              the new one. */}
           <div className="editor-methods">
-            {METHODS.map(({ k, label }) => (
+            {app.accounts.map((a) => (
               <button
-                key={k}
+                key={a.id}
                 type="button"
                 className="editor-method"
-                style={pick(app.eMethod === k)}
-                onClick={() => app.setEMethod(k)}
+                style={pick(app.eAcc === a.id)}
+                onClick={() => app.setEAcc(a.id)}
               >
-                {label}
+                {a.name}
               </button>
             ))}
           </div>

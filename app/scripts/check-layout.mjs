@@ -10,6 +10,10 @@ import { mkdirSync } from 'node:fs'
 const BASE = process.env.APP_URL || 'http://localhost:4173'
 const OUT = process.env.SHOT_DIR || 'shots'
 
+// Accounts are real and shared now, so each run signs up as somebody new
+// rather than colliding with the last run's people.
+const RUN = Date.now().toString(36)
+
 const DEVICES = [
   { name: 'tecno-spark-7t', width: 360, height: 800, dpr: 2 },
   { name: 'iphone-14-pro', width: 393, height: 852, dpr: 3 },
@@ -95,7 +99,7 @@ for (const device of DEVICES) {
   await shoot(page, device, '1.1-signup')
 
   await page.fill('input[placeholder="Name"]', 'Thierry')
-  await page.fill('input[placeholder="Email"]', `thierry+${device.name}@example.com`)
+  await page.fill('input[placeholder="Email"]', `thierry+${RUN}-${device.name}@example.com`)
   await page.fill('input[placeholder="Password"]', 'ubuzima2026')
   await page.click('text=Create account')
 
@@ -124,7 +128,7 @@ for (const device of DEVICES) {
   // 2.1 Record an expense — the amount is typed on the phone's own keyboard
   await page.click('.amount-display')
   await page.fill('input[aria-label="Amount"]', '2400')
-  await page.click('.method-btn >> text=MoMo')
+  await page.click('.method-btn >> text=Bank')
   await page.click('.chip >> text=Groceries')
   await shoot(page, device, '2.1-typing')
   await page.click('.cta')
@@ -135,7 +139,7 @@ for (const device of DEVICES) {
   for (const [amount, method] of [
     ['850', 'Cash'],
     ['12500', 'Bank'],
-    ['3200', 'MoMo'],
+    ['3200', 'Cash'],
   ]) {
     await page.click('.amount-display')
     await page.fill('input[aria-label="Amount"]', amount)
@@ -180,9 +184,10 @@ for (const device of DEVICES) {
   // 3.2 Update balance
   await page.click('text=Update balance')
   await page.waitForSelector('text=What do you have now?')
-  await page.fill('input[aria-label="RWF total"]', '840000')
-  await page.fill('input[aria-label="TL total"]', '9600')
-  await page.fill('input[aria-label="USD total"]', '1240')
+  // The balance is asked per account now, so each field names its place.
+  await page.fill('input[aria-label="Cash RWF total"]', '840000')
+  await page.fill('input[aria-label="Cash TL total"]', '9600')
+  await page.fill('input[aria-label="Bank USD total"]', '1240')
   await shoot(page, device, '3.2-balance')
   await page.click('.btn-save')
   await page.waitForSelector('text=Where the money went', { timeout: 8000 })
@@ -242,6 +247,57 @@ for (const device of DEVICES) {
   await page.waitForSelector('input[placeholder="New category"]')
   await shoot(page, device, '2.2-categories')
   await page.click('button[aria-label="Back"]')
+
+  // 6.1 Pro: its tour, the accounts it names, and a phase read on its own
+  await page.click('.tab >> text="Account"')
+  await page.waitForSelector('text=Pro features')
+  await page.click('[aria-label="Pro features"]')
+  await page.waitForSelector('.tour-slide', { timeout: 8000 })
+  await page.waitForTimeout(700)
+  await shoot(page, device, '6.1-pro-tour')
+  await page.click('text=Done')
+  await page.waitForSelector('text=Pro features')
+
+  await page.click('.row-btn >> text=Accounts')
+  await page.waitForSelector('text=＋ Add an account', { timeout: 8000 })
+  await page.click('text=＋ Add an account')
+  await page.fill('input[placeholder="What is it? Ziraat, Albaraka…"]', 'Ziraat')
+  await shoot(page, device, '6.2-account-form')
+  await page.click('text=Add account')
+  await page.waitForTimeout(300)
+  await shoot(page, device, '6.2-accounts')
+  await page.click('button[aria-label="Back"]')
+  await page.waitForSelector('.tabbar')
+
+  // balance is asked per account now
+  await page.click('.tab >> text="Analytics"')
+  await page.waitForSelector('text=Where the money went')
+  await page.click('text=Update balance')
+  await page.waitForSelector('text=What do you have now?')
+  await shoot(page, device, '6.3-balance-per-account')
+  await page.click('button[aria-label="Back"]')
+  await page.waitForSelector('text=Where the money went', { timeout: 8000 })
+
+  await page.click('.card-footer-btn >> text=Phases')
+  await page.waitForSelector('text=＋ Add a phase', { timeout: 8000 })
+  await page.click('text=＋ Add a phase')
+  await page.fill('input[placeholder="What was it? Rwanda, Back in Türkiye…"]', 'Rwanda')
+  await page.fill('input[aria-label="Phase start"]', '2020-01-01')
+  await shoot(page, device, '6.4-phase-form')
+  await page.click('text=Add phase')
+  await page.waitForSelector('.plan-row', { timeout: 8000 })
+  await shoot(page, device, '6.4-phases')
+  await page.click('.plan-row >> text=Rwanda')
+  await page.waitForSelector('text=Spent in this phase', { timeout: 8000 })
+  await shoot(page, device, '6.5-phase')
+  await page.click('button[aria-label="Back"]')
+  await page.waitForSelector('text=＋ Add a phase', { timeout: 8000 })
+  // A second back lands on Home, which is where a step-in screen returns
+  // to once its own trail has been walked.
+  await page.click('button[aria-label="Back"]')
+  await page.waitForSelector('.tabbar', { timeout: 8000 })
+  await page.click('.tab >> text="Account"')
+  await page.waitForSelector('text=Pro features')
 
   // 5.1 Confirm sheet
   await page.click('text=Sign out')

@@ -6,9 +6,9 @@ import { ChevronRight } from '../components/icons'
 const border = (app: App, field: string) => (app.errField === field ? DANGER : LINE)
 
 export function Profile({ app }: { app: App }) {
-  const { account, data, selCurs, mainCur } = app
-  const name = account?.name || 'You'
-  const email = account?.email || 'not set'
+  const { user, data, selCurs, mainCur } = app
+  const name = user?.name || 'You'
+  const email = user?.email || 'not set'
 
   const rows = [
     { label: 'Name', value: name, to: 'name' as const },
@@ -18,7 +18,7 @@ export function Profile({ app }: { app: App }) {
     { label: 'Currencies', value: selCurs.join(' · '), to: 'curs' as const },
   ]
 
-  const phoneOn = !!account?.passkeyId
+  const phoneOn = !!user?.passkeyId
 
   // Hiding moved out of here: each figure carries its own eye now.
   const toggles: { k: keyof Settings; label: string }[] = [
@@ -128,6 +128,53 @@ export function Profile({ app }: { app: App }) {
         ))}
       </div>
 
+      {/* Pro sits between what the app is and what it holds: a switch, a
+          line saying what it gives, and the way back into the tour. */}
+      <div className="section-label">Byuma Pro</div>
+      <div className="list-card">
+        <div className="toggle-row">
+          <div>
+            <div className="toggle-label">Pro features</div>
+            <div className="toggle-hint">
+              {app.pro
+                ? 'Your own accounts and phases. Turn it off and they are kept, just hidden.'
+                : 'Name the places your money sits, and the stretches of time you spend it in.'}
+            </div>
+          </div>
+          <button
+            type="button"
+            className="toggle"
+            role="switch"
+            aria-checked={app.pro}
+            aria-label="Pro features"
+            onClick={() => app.setPro(!app.pro)}
+            style={{
+              background: app.pro ? ACCENT : 'rgba(20,22,31,.14)',
+              justifyContent: app.pro ? 'flex-end' : 'flex-start',
+            }}
+          >
+            <span />
+          </button>
+        </div>
+        {app.pro && (
+          <>
+            <button type="button" className="row-btn" onClick={app.goAccounts}>
+              <span className="row-label">Accounts</span>
+              <span className="row-right">
+                <span className="row-value">{app.accounts.length}</span>
+                <ChevronRight size={12} color="#9497a5" />
+              </span>
+            </button>
+            <button type="button" className="row-btn" onClick={app.goPro}>
+              <span className="row-label">What Pro gives you</span>
+              <span className="row-right">
+                <ChevronRight size={12} color="#9497a5" />
+              </span>
+            </button>
+          </>
+        )}
+      </div>
+
       <div className="section-label">Data</div>
       <div className="list-card">
         <div className="data-row">
@@ -184,7 +231,7 @@ export function ChangeEmail({ app }: { app: App }) {
     <div className="page">
       <div className="now-card">
         <div className="now-label">Now</div>
-        <div className="now-value">{app.account?.email}</div>
+        <div className="now-value">{app.user?.email}</div>
       </div>
       <input
         className="field mt-9"

@@ -38,7 +38,7 @@ export function ErrorScreen({ app }: { app: App }) {
       <button
         type="button"
         className="btn-quiet mt-9"
-        onClick={() => app.go(app.account ? 'home' : 'signin')}
+        onClick={() => app.go(app.user ? 'home' : 'signin')}
       >
         Back to expenses
       </button>

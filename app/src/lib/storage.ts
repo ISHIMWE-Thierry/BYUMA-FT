@@ -1,4 +1,4 @@
-import type { Income, Plan, Prio, Safety, Settings, UserData } from '../types'
+import type { Account, Expense, Income, Method, Phase, Plan, Prio, Safety, Settings, UserData } from '../types'
 import { BASE_CURS, BASE_RATES, convert } from './rates'
 
 /** An account as the phone-only versions wrote it, password hash and all. */
@@ -70,7 +70,24 @@ export function rememberCategory(cats: string[], note: string): string[] {
   return [...cats, name]
 }
 
-/** A brand new account: no expenses, and a zero balance in every currency. */
+/**
+ * The accounts everyone starts with. Cash and Bank are the two a person
+ * always has; MoMo is the same kind of thing but not everybody uses one, so
+ * it is offered rather than assumed. None of the three can be renamed —
+ * naming your own is what Pro is for.
+ */
+export const STANDARD: Account[] = [
+  { id: 'cash', name: 'Cash', kind: 'cash' },
+  { id: 'bank', name: 'Bank', kind: 'bank' },
+  { id: 'momo', name: 'MoMo', kind: 'momo' },
+]
+
+/** The two that are there from the start; MoMo is added if it is wanted. */
+const STARTING = ['cash', 'bank']
+
+export const isStandard = (id: string) => STANDARD.some((a) => a.id === id)
+
+/** A brand new account: no expenses, and a zero balance everywhere. */
 export function freshData(): UserData {
   return {
     cats: BASE_CATS.slice(),
@@ -80,8 +97,10 @@ export function freshData(): UserData {
     rates: { ...BASE_RATES },
     manualRates: [],
     ratesFetchedAt: null,
+    accounts: STANDARD.filter((a) => STARTING.includes(a.id)).map((a) => ({ ...a })),
+    phases: [],
     // "a zero balance in every currency", exactly as the design starts.
-    balances: { RWF: 0, TL: 0, USD: 0 },
+    balances: { cash: { RWF: 0, TL: 0, USD: 0 }, bank: {} },
     plans: [],
     incomes: [],
     safety: { amt: 0, cur: 'RWF' },
@@ -91,6 +110,7 @@ export function freshData(): UserData {
       hideBal: false,
       hideMonth: false,
       hideSpent: false,
+      pro: false,
     },
     items: [],
     cleared: false,
@@ -132,6 +152,54 @@ function asIncomes(v: unknown): Income[] {
       counted: !!i.counted,
     }))
     .filter((i) => i.amt > 0)
+}
+
+const KINDS: Method[] = ['cash', 'momo', 'bank']
+
+function asAccounts(v: unknown): Account[] {
+  if (!Array.isArray(v)) return []
+  return v
+    .filter((a): a is Account => !!a && typeof a === 'object')
+    .map((a) => ({
+      id: typeof a.id === 'string' && a.id ? a.id : newId(),
+      name: typeof a.name === 'string' && a.name.trim() ? a.name.trim() : 'Account',
+      kind: KINDS.includes(a.kind) ? a.kind : 'cash',
+      ...(a.custom ? { custom: true } : {}),
+    }))
+}
+
+function asPhases(v: unknown): Phase[] {
+  if (!Array.isArray(v)) return []
+  return v
+    .filter((p): p is Phase => !!p && typeof p === 'object')
+    .map((p) => ({
+      id: typeof p.id === 'string' && p.id ? p.id : newId(),
+      name: typeof p.name === 'string' ? p.name : '',
+      from: typeof p.from === 'string' ? p.from : '',
+      to: typeof p.to === 'string' ? p.to : '',
+    }))
+    .filter((p) => p.name && p.from)
+}
+
+/** The shape expenses and balances had before accounts existed. */
+type LegacyExpense = Partial<Expense> & { method?: Method }
+
+function asItems(v: unknown): Expense[] {
+  if (!Array.isArray(v)) return []
+  return (v as LegacyExpense[])
+    .filter((i) => !!i && typeof i === 'object')
+    .map((i) => ({
+      id: typeof i.id === 'string' ? i.id : newId(),
+      amount: typeof i.amount === 'number' ? i.amount : 0,
+      // Before accounts, an expense carried the shape it was paid in, and
+      // those three shapes are exactly the three standard accounts — so the
+      // old value already names the account it came from.
+      acc: typeof i.acc === 'string' && i.acc ? i.acc : (i.method ?? 'cash'),
+      note: typeof i.note === 'string' ? i.note : '',
+      ...(typeof i.detail === 'string' && i.detail ? { detail: i.detail } : {}),
+      cur: typeof i.cur === 'string' ? i.cur : 'RWF',
+      at: typeof i.at === 'number' ? i.at : Date.now(),
+    }))
 }
 
 /** Fill in anything a stored blob is missing, so an old save never crashes. */
@@ -178,6 +246,40 @@ export function normalise(raw: (Partial<UserData> & LegacyLimits) | null): UserD
     settings.hideSpent = true
   }
 
+  const items = asItems(raw.items)
+
+  // Accounts, and the balances that sit in them.
+  //
+  // A save from before accounts held one balance per currency and no notion
+  // of where that money was. It all lands on Cash, which the Update balance
+  // screen then says plainly so it can be split across the real accounts.
+  let accounts = asAccounts(raw.accounts)
+  let balances: Record<string, Record<string, number>> = {}
+  const rawBal = (raw.balances ?? {}) as Record<string, unknown>
+  const perAccount = Object.values(rawBal).every(
+    (v) => v !== null && typeof v === 'object',
+  )
+
+  if (perAccount) {
+    for (const [acc, byCur] of Object.entries(rawBal)) {
+      balances[acc] = { ...(byCur as Record<string, number>) }
+    }
+  } else {
+    // The old shape: currency -> amount, with nowhere named.
+    balances = { cash: { ...(rawBal as Record<string, number>) } }
+  }
+
+  if (!accounts.length) {
+    accounts = STANDARD.filter((a) => STARTING.includes(a.id)).map((a) => ({ ...a }))
+  }
+  // Nothing may be orphaned: an expense recorded on MoMo keeps MoMo on the
+  // list even though a new person is not given one.
+  for (const i of items) {
+    if (accounts.some((a) => a.id === i.acc)) continue
+    const standard = STANDARD.find((a) => a.id === i.acc)
+    accounts.push(standard ? { ...standard } : { id: i.acc, name: 'Account', kind: 'cash' })
+  }
+
   return {
     cats: Array.isArray(raw.cats) ? raw.cats : base.cats,
     allCurs: Array.isArray(raw.allCurs) && raw.allCurs.length ? raw.allCurs : base.allCurs,
@@ -186,12 +288,14 @@ export function normalise(raw: (Partial<UserData> & LegacyLimits) | null): UserD
     rates,
     manualRates: Array.isArray(raw.manualRates) ? raw.manualRates : [],
     ratesFetchedAt: typeof raw.ratesFetchedAt === 'number' ? raw.ratesFetchedAt : null,
-    balances: { ...(raw.balances ?? {}) },
+    accounts,
+    phases: asPhases(raw.phases),
+    balances,
     plans,
     incomes: asIncomes(raw.incomes),
     safety,
     settings,
-    items: Array.isArray(raw.items) ? raw.items : [],
+    items,
     cleared: !!raw.cleared,
   }
 }

@@ -1,12 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import type { App } from '../useApp'
-import type { Method } from '../types'
-import { amountIn, sumIn } from '../lib/calc'
+import { amountIn, sumFrom, sumIn } from '../lib/calc'
 import { groupTyped, sanitizeAmount } from '../lib/money'
 import {
-  METHODS,
   MICON,
-  MLABEL,
   ChevronRight,
   PlusSmallIcon,
   EyeIcon,
@@ -17,11 +14,14 @@ import { ACCENT, ChipScroller, pick } from '../components/ui'
 /** How many of the latest expenses the home screen shows before "More". */
 const RECENT = 3
 
-const MIXCOL: Record<Method, string> = {
-  cash: ACCENT,
-  momo: '#4b4f5e',
-  bank: '#8f92a0',
-}
+/**
+ * The split of what was spent, one band per account. The design drew three
+ * bands, so the first three keep exactly its colours; a Pro list longer
+ * than that carries on through the same family rather than inventing a
+ * rainbow.
+ */
+export const MIXCOL = [ACCENT, '#4b4f5e', '#8f92a0', '#7b5ec7', '#b4553a', '#1f7a5c']
+export const mixColour = (ix: number) => MIXCOL[ix % MIXCOL.length]
 
 export function Home({ app }: { app: App }) {
   // The total is there to be read, so it shows. The eye covers it for the
@@ -35,13 +35,15 @@ export function Home({ app }: { app: App }) {
   const items = data.items
   const rates = data.rates
 
-  const ready = num > 0 && !!app.method
+  const ready = num > 0 && !!app.acc
   const ctaLabel =
-    num <= 0 ? 'Record expense' : !app.method ? 'Pick a method' : 'Record ' + app.fmt(num)
+    num <= 0 ? 'Record expense' : !app.acc ? 'Pick an account' : 'Record ' + app.fmt(num)
 
   // A balance of zero everywhere means the person has not told the app what
   // they have yet.
-  const hasBalance = app.selCurs.some((c) => (data.balances[c] ?? 0) !== 0)
+  const hasBalance = Object.values(data.balances).some((held) =>
+    Object.values(held ?? {}).some((v) => v !== 0),
+  )
 
   // The phone's keyboard covers the bottom of the screen while an amount or a
   // new category is being typed. The moment the expense is ready to record,
@@ -89,22 +91,50 @@ export function Home({ app }: { app: App }) {
           }}
         />
 
-        <div className="methods">
-          {METHODS.map(({ k, label, Icon }) => (
-            <button
-              key={k}
-              type="button"
-              className="method-btn"
-              style={pick(app.method === k)}
-              onClick={() => app.setMethod(k)}
-            >
-              <span style={{ display: 'flex' }}>
-                <Icon />
-              </span>
-              {label}
-            </button>
-          ))}
-        </div>
+        {/* Where the money comes out of. Up to three sit side by side as
+            the design drew them; a Pro list longer than that scrolls
+            sideways instead of squeezing every name thinner. */}
+        {app.accounts.length <= 3 ? (
+          <div className="methods">
+            {app.accounts.map((a) => {
+              const Icon = MICON[a.kind]
+              return (
+                <button
+                  key={a.id}
+                  type="button"
+                  className="method-btn"
+                  style={pick(app.acc === a.id)}
+                  onClick={() => app.setAcc(a.id)}
+                >
+                  <span style={{ display: 'flex' }}>
+                    <Icon />
+                  </span>
+                  {a.name}
+                </button>
+              )
+            })}
+          </div>
+        ) : (
+          <ChipScroller className="methods methods-many">
+            {app.accounts.map((a) => {
+              const Icon = MICON[a.kind]
+              return (
+                <button
+                  key={a.id}
+                  type="button"
+                  className="method-btn"
+                  style={pick(app.acc === a.id)}
+                  onClick={() => app.setAcc(a.id)}
+                >
+                  <span style={{ display: 'flex' }}>
+                    <Icon />
+                  </span>
+                  {a.name}
+                </button>
+              )
+            })}
+          </ChipScroller>
+        )}
 
         <input
           className="note-field"
@@ -191,38 +221,29 @@ export function Home({ app }: { app: App }) {
               <>
                 <span className="spent-figure">{app.fmt(total)}</span>
                 <span className="mixbar">
-                  {METHODS.map(({ k }) => {
-                    const v = sumIn(
-                      rates,
-                      items.filter((i) => i.method === k),
-                      mainCur,
-                    )
-                    return (
-                      <span
-                        key={k}
-                        style={{
-                          width: Math.round((v / allSum) * 1000) / 10 + '%',
-                          background: MIXCOL[k],
-                        }}
-                      />
-                    )
-                  })}
+                  {app.accounts.map((a, ix) => (
+                    <span
+                      key={a.id}
+                      style={{
+                        width:
+                          Math.round((sumFrom(rates, items, a.id, mainCur) / allSum) * 1000) /
+                            10 +
+                          '%',
+                        background: mixColour(ix),
+                      }}
+                    />
+                  ))}
                 </span>
                 <span className="mixlegend">
-                  {METHODS.map(({ k, label }) => {
-                    const v = sumIn(
-                      rates,
-                      items.filter((i) => i.method === k),
-                      mainCur,
-                    )
-                    return (
-                      <span className="mixleg" key={k}>
-                        <span className="dot-7" style={{ background: MIXCOL[k] }} />
-                        <span className="mix-name">{label}</span>
-                        <span className="mix-sum">{app.fmt(v)}</span>
+                  {app.accounts.map((a, ix) => (
+                    <span className="mixleg" key={a.id}>
+                      <span className="dot-7" style={{ background: mixColour(ix) }} />
+                      <span className="mix-name">{a.name}</span>
+                      <span className="mix-sum">
+                        {app.fmt(sumFrom(rates, items, a.id, mainCur))}
                       </span>
-                    )
-                  })}
+                    </span>
+                  ))}
                 </span>
               </>
             ) : (
@@ -248,7 +269,7 @@ export function Home({ app }: { app: App }) {
 
             <div className="tl-card recent-card">
               {items.slice(0, RECENT).map((item) => {
-                const Icon = MICON[item.method]
+                const Icon = MICON[app.accKind(item.acc)]
                 return (
                   <button
                     key={item.id}
@@ -260,14 +281,14 @@ export function Home({ app }: { app: App }) {
                       className="tl-tile"
                       style={{
                         background:
-                          item.method === 'cash'
+                          app.accKind(item.acc) === 'cash'
                             ? 'rgba(20,22,31,.05)'
                             : 'rgba(20,22,31,.08)',
                       }}
                     >
                       <Icon />
                     </span>
-                    <span className="tl-note">{item.note || MLABEL[item.method]}</span>
+                    <span className="tl-note">{item.note || app.accName(item.acc)}</span>
                     <span className="tl-amount">
                       {app.fmt(amountIn(rates, item, mainCur))}
                     </span>

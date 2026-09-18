@@ -6,12 +6,17 @@ import {
   dayLabel,
   dayOffset,
   dayStamp,
+  inPhase,
   intoSafety,
+  phaseAt,
+  phaseDays,
+  phaseItems,
   p1Shortfall,
   plansTake,
   safetyTake,
   shortDate,
   spendableNow,
+  sortPhases,
   sumIn,
   topCategories,
   totalBalance,
@@ -24,7 +29,7 @@ const DAY = 864e5
 const expense = (over: Partial<Expense> = {}): Expense => ({
   id: Math.random().toString(36),
   amount: 1000,
-  method: 'cash',
+  acc: 'cash',
   note: '',
   cur: 'RWF',
   at: Date.now(),
@@ -252,17 +257,21 @@ describe('top categories', () => {
   it('falls back to the method name when there is no note', () => {
     const top = topCategories(
       BASE_RATES,
-      [expense({ amount: 20, note: '', method: 'momo' })],
+      [expense({ amount: 20, note: '', acc: 'momo' })],
       'RWF',
-      (i) => i.note || i.method,
+      (i) => i.note || i.acc,
     )
     expect(top[0].name).toBe('momo')
   })
 })
 
 describe('the ultimate total', () => {
-  // 1 USD = 1420 RWF, 1 TL = 34 RWF
-  const balances = { RWF: 840_000, TL: 9_600, USD: 1_240 }
+  // 1 USD = 1420 RWF, 1 TL = 34 RWF. Spread over two accounts, because a
+  // pot is a pot however many places it sits in.
+  const balances = {
+    cash: { RWF: 840_000, TL: 9_600 },
+    bank: { USD: 1_240 },
+  }
   const codes = ['RWF', 'TL', 'USD']
 
   it('adds every currency into one figure', () => {
@@ -282,7 +291,7 @@ describe('the ultimate total', () => {
   })
 
   it('treats a currency with no balance as zero', () => {
-    expect(totalBalance(BASE_RATES, { RWF: 500 }, ['RWF', 'USD'], 'RWF')).toBe(500)
+    expect(totalBalance(BASE_RATES, { cash: { RWF: 500 } }, ['RWF', 'USD'], 'RWF')).toBe(500)
   })
 
   it('drives spendable off the whole pot, not one currency', () => {
@@ -295,6 +304,51 @@ describe('the ultimate total', () => {
 
   it('follows an edited rate', () => {
     const cheaper = withRate(BASE_RATES, 'USD', 1000, 'RWF')
-    expect(totalBalance(cheaper, { USD: 2 }, ['USD'], 'RWF')).toBe(2000)
+    expect(totalBalance(cheaper, { bank: { USD: 2 } }, ['USD'], 'RWF')).toBe(2000)
+  })
+})
+
+describe('phases', () => {
+  const rwanda = { id: 'r', name: 'Rwanda', from: '2026-06-01', to: '2026-09-02' }
+  const turkiye = { id: 't', name: 'Türkiye', from: '2026-09-03', to: '' }
+  const on = (iso: string) => new Date(iso + 'T12:00:00').getTime()
+
+  it('takes in both ends of the stretch', () => {
+    expect(inPhase(rwanda, on('2026-06-01'))).toBe(true)
+    expect(inPhase(rwanda, on('2026-09-02'))).toBe(true)
+    expect(inPhase(rwanda, on('2026-05-31'))).toBe(false)
+    expect(inPhase(rwanda, on('2026-09-03'))).toBe(false)
+  })
+
+  it('a phase with no end runs to whenever you ask', () => {
+    expect(inPhase(turkiye, on('2026-09-03'))).toBe(true)
+    expect(inPhase(turkiye, on('2027-01-01'))).toBe(true)
+    expect(inPhase(turkiye, on('2026-09-02'))).toBe(false)
+  })
+
+  it('gathers only the expenses whose day falls inside', () => {
+    const items = [
+      expense({ amount: 100, at: on('2026-07-04') }),
+      expense({ amount: 200, at: on('2026-09-10') }),
+      expense({ amount: 400, at: on('2026-08-30') }),
+    ]
+    expect(sumIn(BASE_RATES, phaseItems(items, rwanda), 'RWF')).toBe(500)
+    expect(sumIn(BASE_RATES, phaseItems(items, turkiye), 'RWF')).toBe(200)
+  })
+
+  it('names the phase a day belongs to, newest start winning an overlap', () => {
+    expect(phaseAt([rwanda, turkiye], on('2026-07-04'))?.name).toBe('Rwanda')
+    expect(phaseAt([rwanda, turkiye], on('2026-10-01'))?.name).toBe('Türkiye')
+    expect(phaseAt([rwanda, turkiye], on('2026-01-01'))).toBe(null)
+  })
+
+  it('counts the days it covers, both ends included', () => {
+    expect(phaseDays({ ...rwanda, from: '2026-06-01', to: '2026-06-01' })).toBe(1)
+    expect(phaseDays({ ...rwanda, from: '2026-06-01', to: '2026-06-10' })).toBe(10)
+  })
+
+  it('puts a running phase first, then the newest', () => {
+    const order = sortPhases([rwanda, turkiye]).map((p) => p.name)
+    expect(order).toEqual(['Türkiye', 'Rwanda'])
   })
 })

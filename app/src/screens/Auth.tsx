@@ -1,8 +1,32 @@
 import type { App } from '../useApp'
 import { ACCENT, DANGER, FormError, LINE, PasswordField, Wordmark } from '../components/ui'
-import { UnlockIcon } from '../components/icons'
+import { GoogleIcon, UnlockIcon } from '../components/icons'
 
 const border = (app: App, field: string) => (app.errField === field ? DANGER : LINE)
+
+/** One tap in, with no password to make up or remember. */
+function GoogleButton({ app, label }: { app: App; label: string }) {
+  return (
+    <button
+      type="button"
+      className="unlock google-btn"
+      onClick={() => void app.signInWithGoogle()}
+    >
+      <GoogleIcon />
+      {label}
+    </button>
+  )
+}
+
+function OrLine() {
+  return (
+    <div className="auth-divider">
+      <span />
+      <span className="auth-divider-word">or</span>
+      <span />
+    </div>
+  )
+}
 
 /** Offered only when this phone can do it and it has been set up. */
 function UnlockButton({ app, label }: { app: App; label: string }) {
@@ -23,6 +47,11 @@ export function SignUp({ app }: { app: App }) {
       <div className="headline-auth">Track what you spend.</div>
 
       <div className="field-group">
+        <GoogleButton app={app} label="Continue with Google" />
+      </div>
+      <OrLine />
+
+      <div className="mt-22">
         <input
           className="field"
           type="text"
@@ -94,6 +123,11 @@ export function SignIn({ app }: { app: App }) {
       <div className="headline-auth">Welcome back.</div>
 
       <div className="field-group">
+        <GoogleButton app={app} label="Continue with Google" />
+      </div>
+      <OrLine />
+
+      <div className="mt-22">
         <input
           className="field"
           type="email"
@@ -224,7 +258,7 @@ export function Lock({ app }: { app: App }) {
       <div className="wordmark">
         <Wordmark />
       </div>
-      <div className="headline-auth">Hello, {app.account?.name || 'you'}.</div>
+      <div className="headline-auth">Hello, {app.user?.name || 'you'}.</div>
 
       <div className="field-group">
         <UnlockButton app={app} label="Unlock with your phone" />

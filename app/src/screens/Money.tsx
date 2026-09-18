@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import type { App } from '../useApp'
 import type { Income, Plan, Prio } from '../types'
-import { shortDate } from '../lib/calc'
+import { accountBalance, shortDate } from '../lib/calc'
 import { clean, groupTyped, MINUS } from '../lib/money'
 import { convert, estRate } from '../lib/rates'
 import { ChipScroller, DANGER, FormError, LINE, pick } from '../components/ui'
@@ -11,33 +11,72 @@ import { CrossIcon, InfoIcon } from '../components/icons'
 const border = (app: App, field: string) => (app.errField === field ? DANGER : LINE)
 
 export function Balance({ app }: { app: App }) {
-  const { data, selCurs, mainCur, extra } = app
+  const { data, selCurs, mainCur, extra, accounts } = app
   const others = data.allCurs.filter((c) => !selCurs.includes(c))
   const rateRows = selCurs.filter((c) => c !== mainCur)
+
+  // A save made before accounts existed put everything under Cash, because
+  // it never recorded where the money was. Said once, here, where it can be
+  // put right in a few taps.
+  const onlyCash =
+    accounts.length > 1 &&
+    Object.entries(data.balances).every(
+      ([id, held]) =>
+        id === 'cash' || !Object.values(held ?? {}).some((v) => v !== 0),
+    ) &&
+    Object.values(data.balances.cash ?? {}).some((v) => v !== 0)
 
   return (
     <div className="page">
       <div className="headline-26">What do you have now?</div>
 
-      <div className="bal-inputs">
-        {selCurs.map((c) => (
-          <div className="money-row" key={c} style={{ borderColor: border(app, 'bal' + c) }}>
-            <span className="money-code">{c}</span>
-            <input
-              className="money-input"
-              type="text"
-              inputMode="decimal"
-              aria-label={c + ' total'}
-              placeholder="0"
-              value={app.fBal[c] ? groupTyped(app.fBal[c]) : ''}
-              onChange={(e) => {
-                app.setFBal({ ...app.fBal, [c]: clean(e.target.value) })
-                app.clearErr()
-              }}
-            />
+      {onlyCash && (
+        <div className="helper mt-9">
+          Everything is under Cash, which is where an older version kept it.
+          Move what is really in the bank onto Bank.
+        </div>
+      )}
+
+      {/* One block per account, each holding its own currencies. */}
+      {accounts.map((a) => (
+        <div className="bal-acc" key={a.id}>
+          <div className="section-head">
+            <span className="section-label">{a.name}</span>
+            <span className="section-total">
+              {app.fmtIn(
+                accountBalance(data.rates, data.balances, a.id, selCurs, app.activeCur),
+                app.activeCur,
+              )}
+            </span>
           </div>
-        ))}
-      </div>
+          <div className="bal-inputs">
+            {selCurs.map((c) => {
+              const key = a.id + '|' + c
+              return (
+                <div
+                  className="money-row"
+                  key={key}
+                  style={{ borderColor: border(app, 'bal' + key) }}
+                >
+                  <span className="money-code">{c}</span>
+                  <input
+                    className="money-input"
+                    type="text"
+                    inputMode="decimal"
+                    aria-label={a.name + ' ' + c + ' total'}
+                    placeholder="0"
+                    value={app.fBal[key] ? groupTyped(app.fBal[key]) : ''}
+                    onChange={(e) => {
+                      app.setFBal({ ...app.fBal, [key]: clean(e.target.value) })
+                      app.clearErr()
+                    }}
+                  />
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      ))}
 
       <FormError message={app.formError} />
 
