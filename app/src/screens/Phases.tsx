@@ -1,5 +1,6 @@
 import type { App } from '../useApp'
-import type { Method, Phase } from '../types'
+import { today } from '../useApp'
+import type { Phase } from '../types'
 import {
   phaseDays,
   phaseItems,
@@ -9,72 +10,124 @@ import {
   sumIn,
   topCategories,
 } from '../lib/calc'
-import { ACCENT, DANGER, FormError, LINE, pick } from '../components/ui'
-import { ChevronRight, MICON } from '../components/icons'
+import { groupTyped, sanitizeAmount } from '../lib/money'
+import { ACCENT, ChipScroller, DANGER, FormError, LINE, pick } from '../components/ui'
+import { ChevronRight } from '../components/icons'
 import { mixColour } from './Home'
 
 const border = (app: App, field: string) => (app.errField === field ? DANGER : LINE)
 
-const KINDS: { k: Method; label: string }[] = [
-  { k: 'bank', label: 'Bank' },
-  { k: 'cash', label: 'Cash' },
-  { k: 'momo', label: 'Phone' },
-]
-
 /* ==================================================================
-   The account form — name and icon. Lives on the Balance screen.
+   Recording into a phase
 ================================================================== */
 
-export function AccFormBox({ app, inCard }: { app: App; inCard?: boolean }) {
-  const form = app.accForm
-  if (!form) return null
+/**
+ * An expense added straight into a phase, from its card in History or its
+ * own page. Amount, how it was paid, what for — and which day. The day is
+ * the guide: it opens at today while the phase runs (its last day once it
+ * is over) and can only be moved within the phase's dates, so the expense
+ * lands where it belongs and nowhere else.
+ */
+export function PhaseRecordBox({ app, phase }: { app: App; phase: Phase }) {
+  const pr = app.phaseRec
+  if (!pr || pr.phaseId !== phase.id) return null
+  const t = today()
+  const last = phase.to && phase.to < t ? phase.to : t
 
   return (
-    <div className={inCard ? 'mini-form mini-form-card' : 'mini-form'}>
-      <input
-        className="field"
-        type="text"
-        placeholder="What is it? Ziraat, Albaraka…"
-        value={form.name}
-        onChange={(e) => {
-          app.setAccForm({ ...form, name: e.target.value })
-          app.clearErr()
-        }}
-        style={{ borderColor: border(app, 'accname') }}
-      />
+    <div className="mini-form phase-rec">
+      <div className="money-row" style={{ marginBottom: 0, borderColor: border(app, 'pramt') }}>
+        <span className="money-code">{app.mainCur}</span>
+        <input
+          className="money-input"
+          type="text"
+          inputMode="decimal"
+          aria-label="Amount"
+          placeholder="0"
+          autoFocus
+          value={pr.amt ? groupTyped(pr.amt) : ''}
+          onChange={(e) => {
+            app.setPhaseRec({ ...pr, amt: sanitizeAmount(e.target.value) })
+            app.clearErr()
+          }}
+        />
+      </div>
 
-      <div className="prio-seg">
-        {KINDS.map(({ k, label }) => {
-          const Icon = MICON[k]
+      <div className="editor-methods" style={{ marginTop: 9 }}>
+        {app.methods.map((m) => (
+          <button
+            key={m}
+            type="button"
+            className="editor-method"
+            style={pick(pr.method === m)}
+            aria-pressed={pr.method === m}
+            onClick={() => {
+              app.setPhaseRec({ ...pr, method: m })
+              app.clearErr()
+            }}
+          >
+            {app.methodName(m)}
+          </button>
+        ))}
+      </div>
+
+      <input
+        className="field mt-9"
+        type="text"
+        placeholder="What was it for?"
+        value={pr.note}
+        onChange={(e) => app.setPhaseRec({ ...pr, note: e.target.value })}
+      />
+      <ChipScroller className="chips phase-rec-chips">
+        {app.orderedCats.slice(0, 8).map((c) => {
+          const on = pr.note.toLowerCase() === c.toLowerCase()
           return (
             <button
-              key={k}
+              key={c}
               type="button"
-              className="prio-btn"
-              style={pick(form.kind === k, '#faf9fc', '#4b4f5e')}
-              onClick={() => app.setAccForm({ ...form, kind: k })}
+              className="chip"
+              style={pick(on, '#fff', '#4b4f5e')}
+              onClick={() => app.setPhaseRec({ ...pr, note: on ? '' : c })}
             >
-              <span style={{ display: 'flex' }}>
-                <Icon />
-              </span>
-              <span className="prio-btn-word">{label}</span>
+              {c}
             </button>
           )
         })}
+      </ChipScroller>
+
+      <div className="date-row" style={{ borderColor: border(app, 'prday') }}>
+        <span className="date-label">Which day?</span>
+        <input
+          className="date-input"
+          type="date"
+          aria-label="Day"
+          min={phase.from}
+          max={last}
+          value={pr.day}
+          onChange={(e) => {
+            app.setPhaseRec({ ...pr, day: e.target.value })
+            app.clearErr()
+          }}
+        />
+      </div>
+      <div className="helper" style={{ marginTop: 8 }}>
+        Any day from {shortDate(phase.from)} to {last === t ? 'today' : shortDate(last)}.
       </div>
 
-      <FormError message={app.errField === 'accname' ? app.formError : ''} />
+      <FormError
+        message={['pramt', 'prmethod', 'prday'].includes(app.errField) ? app.formError : ''}
+      />
       <div className="form-actions">
-        <button type="button" className="editor-cancel" onClick={() => app.setAccForm(null)}>
+        <button type="button" className="editor-cancel" onClick={() => app.setPhaseRec(null)}>
           Cancel
         </button>
         <button
           type="button"
           className="editor-save"
           style={{ background: ACCENT, borderColor: LINE }}
-          onClick={app.saveAcc}
+          onClick={app.savePhaseRec}
         >
-          {form.id ? 'Save changes' : 'Add account'}
+          Record into {phase.name}
         </button>
       </div>
     </div>
@@ -256,6 +309,15 @@ export function PhaseView({ app }: { app: App }) {
           </button>
         </div>
       </div>
+
+      {/* An expense that belongs in this phase, placed on one of its days. */}
+      {app.phaseRec?.phaseId === ph.id ? (
+        <PhaseRecordBox app={app} phase={ph} />
+      ) : (
+        <button type="button" className="extra-link mt-14" onClick={() => app.openPhaseRec(ph)}>
+          ＋ Add an expense to {ph.name}
+        </button>
+      )}
 
       {items.length > 0 && (
         <>

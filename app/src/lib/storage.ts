@@ -92,14 +92,16 @@ export const METHOD_NAME: Record<Method, string> = { cash: 'Cash', bank: 'Bank',
  * Balance screen.
  */
 export const STANDARD: Account[] = [
-  { id: 'cash', name: 'Cash', kind: 'cash' },
-  { id: 'bank', name: 'Bank', kind: 'bank' },
+  { id: 'cash', name: 'Cash', kind: 'cash', cur: 'RWF' },
+  { id: 'bank', name: 'Bank', kind: 'bank', cur: 'RWF' },
 ]
 
-/** The one account that holds the totals when the balance is entered per currency. */
-export const ALL_ID = 'all'
+/** The two standard accounts, holding the main currency. */
+export function standardAccounts(cur: string): Account[] {
+  return STANDARD.map((a) => ({ ...a, cur }))
+}
 
-/** A brand new account: no expenses, and a zero balance everywhere. */
+/** A brand new account: no expenses, and nothing in either account yet. */
 export function freshData(): UserData {
   return {
     cats: BASE_CATS.slice(),
@@ -109,10 +111,9 @@ export function freshData(): UserData {
     rates: { ...BASE_RATES },
     manualRates: [],
     ratesFetchedAt: null,
-    accounts: STANDARD.map((a) => ({ ...a })),
+    accounts: standardAccounts('RWF'),
     phases: [],
-    // "a zero balance in every currency", exactly as the design starts.
-    balances: { cash: { RWF: 0, TL: 0, USD: 0 }, bank: {} },
+    balances: { cash: { RWF: 0 }, bank: { RWF: 0 } },
     balancesAt: 0,
     checkups: [],
     plans: [],
@@ -125,7 +126,6 @@ export function freshData(): UserData {
       hideSpent: false,
       seenTour: false,
       hiddenMethods: [],
-      balanceBy: 'account',
       remind: true,
     },
     items: [],
@@ -174,15 +174,18 @@ function asIncomes(v: unknown): Income[] {
 const KINDS: Method[] = ['cash', 'momo', 'bank']
 const isMethod = (v: unknown): v is Method => KINDS.includes(v as Method)
 
-/** Accounts as saved by any version: only the name and the icon matter now. */
-function asAccounts(v: unknown): Account[] {
+/** An account as saved by any version. The currency arrived last, so it may be missing. */
+type RawAccount = Omit<Account, 'cur'> & { cur?: string }
+
+function asAccounts(v: unknown): RawAccount[] {
   if (!Array.isArray(v)) return []
   return v
-    .filter((a): a is Account => !!a && typeof a === 'object')
+    .filter((a): a is RawAccount => !!a && typeof a === 'object')
     .map((a) => ({
       id: typeof a.id === 'string' && a.id ? a.id : newId(),
       name: typeof a.name === 'string' && a.name.trim() ? a.name.trim() : 'Account',
       kind: isMethod(a.kind) ? a.kind : 'cash',
+      ...(typeof a.cur === 'string' && a.cur.trim() ? { cur: a.cur.trim() } : {}),
     }))
 }
 
@@ -219,7 +222,7 @@ function asCheckups(v: unknown): Checkup[] {
  */
 type LegacyExpense = Partial<Expense> & { acc?: string }
 
-function asItems(v: unknown, accounts: Account[]): Expense[] {
+function asItems(v: unknown, accounts: Pick<Account, 'id' | 'kind'>[]): Expense[] {
   if (!Array.isArray(v)) return []
   return (v as LegacyExpense[])
     .filter((i) => !!i && typeof i === 'object')
@@ -296,7 +299,6 @@ export function normalise(
     hiddenMethods: Array.isArray(rawSettings.hiddenMethods)
       ? rawSettings.hiddenMethods.filter(isMethod)
       : [],
-    balanceBy: rawSettings.balanceBy === 'currency' ? 'currency' : 'account',
     remind:
       typeof rawSettings.remind === 'boolean'
         ? rawSettings.remind
@@ -313,12 +315,11 @@ export function normalise(
   // Accounts, and the balances that sit in them.
   //
   // A save from before accounts held one balance per currency and no notion
-  // of where that money was. It all lands on Cash, which the Balance screen
-  // then shows so it can be split across the real accounts.
-  let accounts = asAccounts(raw.accounts)
-  if (!accounts.length) accounts = STANDARD.map((a) => ({ ...a }))
+  // of where that money was. It all lands on Cash.
+  let raws = asAccounts(raw.accounts)
+  if (!raws.length) raws = standardAccounts(mainCur)
 
-  const items = asItems(raw.items, accounts)
+  const items = asItems(raw.items, raws)
 
   // The tour is shown once, after the first sign-in. A save from before
   // that was recorded has been through it already if anything is in it.
@@ -334,21 +335,49 @@ export function normalise(
     settings.seenTour = used
   }
 
-  let balances: Record<string, Record<string, number>> = {}
+  let held: Record<string, Record<string, number>> = {}
   const rawBal = (raw.balances ?? {}) as Record<string, unknown>
   const perAccount = Object.values(rawBal).every((v) => v !== null && typeof v === 'object')
   if (perAccount) {
     for (const [acc, byCur] of Object.entries(rawBal)) {
-      balances[acc] = { ...(byCur as Record<string, number>) }
+      held[acc] = { ...(byCur as Record<string, number>) }
     }
   } else {
     // The old shape: currency -> amount, with nowhere named.
-    balances = { cash: { ...(rawBal as Record<string, number>) } }
+    held = { cash: { ...(rawBal as Record<string, number>) } }
   }
-  // Money under an account that no longer exists is still money.
-  for (const id of Object.keys(balances)) {
-    if (id === ALL_ID || accounts.some((a) => a.id === id)) continue
-    accounts.push({ id, name: 'Account', kind: 'cash' })
+  // Money under an account that no longer exists is still money. The pot a
+  // version that took one total per currency wrote is one such account.
+  for (const id of Object.keys(held)) {
+    if (raws.some((a) => a.id === id)) continue
+    raws.push({ id, name: id === 'all' ? 'Total' : 'Account', kind: 'cash' })
+  }
+
+  // One account, one currency. An account saved before that rule takes the
+  // currency it holds; one holding several is split — the first keeps the
+  // name, the others become "<name> <CUR>" — so no money is lost.
+  const pref = (c: string) => {
+    const ix = selCurs.indexOf(c)
+    return ix === -1 ? selCurs.length : ix
+  }
+  const accounts: Account[] = []
+  const balances: Record<string, Record<string, number>> = {}
+  for (const a of raws) {
+    const inIt = Object.entries(held[a.id] ?? {}).filter(
+      ([, n]) => typeof n === 'number' && n !== 0,
+    )
+    const curs = inIt.map(([c]) => c).sort((x, y) => pref(x) - pref(y))
+    const cur = a.cur ?? curs[0] ?? mainCur
+    const amount = held[a.id]?.[cur]
+    accounts.push({ id: a.id, name: a.name, kind: a.kind, cur })
+    balances[a.id] = { [cur]: typeof amount === 'number' ? amount : 0 }
+    for (const [c, n] of inIt) {
+      if (c === cur) continue
+      let id = a.id + '-' + c.toLowerCase()
+      if (raws.some((x) => x.id === id) || balances[id]) id = newId()
+      accounts.push({ id, name: a.name + ' ' + c, kind: a.kind, cur: c })
+      balances[id] = { [c]: n }
+    }
   }
 
   // Before check-ups, every expense was taken off the balance the moment it

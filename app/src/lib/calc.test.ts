@@ -299,9 +299,15 @@ describe('the ultimate total', () => {
     expect(inUsd).toBeCloseTo(inRwf / 1420, 6)
   })
 
-  it('counts only the currencies that are picked', () => {
-    expect(totalBalance(BASE_RATES, srcOf(balances), ['RWF'], 'RWF')).toBe(840_000)
-    expect(totalBalance(BASE_RATES, srcOf(balances), ['RWF', 'TL'], 'RWF')).toBe(1_166_400)
+  it('counts every currency an account holds, picked or not — money is money', () => {
+    // Every currency held is in the total whichever are picked, so an
+    // account in a currency since unpicked is never silently dropped.
+    expect(totalBalance(BASE_RATES, srcOf(balances), ['RWF'], 'RWF')).toBe(
+      totalBalance(BASE_RATES, srcOf(balances), ['RWF', 'TL', 'USD'], 'RWF'),
+    )
+    expect(totalBalance(BASE_RATES, srcOf({ cash: { RWF: 840_000 }, tl: { TL: 9_600 } }), ['RWF'], 'RWF')).toBe(
+      1_166_400,
+    )
   })
 
   it('treats a currency with no balance as zero', () => {

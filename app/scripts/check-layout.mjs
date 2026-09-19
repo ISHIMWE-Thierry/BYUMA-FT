@@ -194,10 +194,9 @@ for (const device of DEVICES) {
   // 3.2 Update balance
   await page.click('text=Update balance')
   await page.waitForSelector('text=What do you have now?')
-  // The balance is asked per account now, so each field names its place.
-  await page.fill('input[aria-label="Cash RWF total"]', '840000')
-  await page.fill('input[aria-label="Cash TL total"]', '9600')
-  await page.fill('input[aria-label="Bank USD total"]', '1240')
+  // One line per account, each in its own currency.
+  await page.fill('input[aria-label="Cash balance"]', '840000')
+  await page.fill('input[aria-label="Bank balance"]', '500000')
   await shoot(page, device, '3.2-balance')
   await page.click('.btn-save')
   await page.waitForSelector('text=Where the money went', { timeout: 8000 })
@@ -258,29 +257,31 @@ for (const device of DEVICES) {
   await shoot(page, device, '2.2-categories')
   await page.click('button[aria-label="Back"]')
 
-  // 6.1 Accounts, on the Balance screen: name one, then the balance by currency
+  // 6.1 Accounts, on the Balance screen: one line each — Albaraka, TL, 700
   await page.click('.tab >> text="Analytics"')
   await page.waitForSelector('text=Where the money went')
   await page.click('text=Update balance')
   await page.waitForSelector('text=What do you have now?')
-  await page.click('.pick-chip >> text=Add an account')
-  await page.fill('input[placeholder="What is it? Ziraat, Albaraka…"]', 'Ziraat')
+  await page.click('text=＋ Add an account')
+  await page.fill('input[placeholder="What is it? Ziraat, Albaraka…"]', 'Albaraka')
+  await page.click('.mini-form .pick-chip >> text=TL')
   await shoot(page, device, '6.1-account-form')
   await page.click('text=Add account')
-  await page.waitForTimeout(300)
+  await page.waitForSelector('input[aria-label="Albaraka balance"]', { timeout: 8000 })
+  await page.fill('input[aria-label="Albaraka balance"]', '700')
   await shoot(page, device, '6.1-balance-accounts')
-  await page.click('.mode-seg .seg-btn >> text=By currency')
-  await page.waitForSelector('input[aria-label="Total RWF total"]', { timeout: 8000 })
-  await shoot(page, device, '6.2-balance-by-currency')
-  await page.click('.mode-seg .seg-btn >> text=By account')
-  await page.waitForSelector('input[aria-label="Cash RWF total"]', { timeout: 8000 })
+  // Tapping a name opens it for changing, with Remove beside Save.
+  await page.click('button[aria-label="Change Albaraka"]')
+  await page.waitForSelector('.mini-form-card', { timeout: 8000 })
+  await shoot(page, device, '6.2-account-change')
+  await page.click('.mini-form-card >> text=Cancel')
   // A second check-up, lower than the records expect: the gap is kept.
-  await page.fill('input[aria-label="Cash RWF total"]', '800000')
+  await page.fill('input[aria-label="Cash balance"]', '800000')
   await page.click('.btn-save')
   await page.waitForSelector('text=Check-ups', { timeout: 8000 })
   await shoot(page, device, '6.3-stats-checkups')
 
-  // 6.4 A phase started from History, and read on its own
+  // 6.4 A phase started from History, an expense added into it, and read on its own
   await page.click('.tab >> text="History"')
   await page.waitForSelector('.phase-strip', { timeout: 8000 })
   await page.click('.phase-chip-add')
@@ -289,6 +290,13 @@ for (const device of DEVICES) {
   await page.click('.sel-save')
   await page.waitForSelector('.phase-card', { timeout: 8000 })
   await shoot(page, device, '6.4-history-phase')
+  await page.click('.phase-card-btn >> text=＋ Add')
+  await page.waitForSelector('.phase-rec', { timeout: 8000 })
+  await page.fill('.phase-rec input[aria-label="Amount"]', '700')
+  await page.click('.phase-rec .editor-method >> text=Cash')
+  await shoot(page, device, '6.4-phase-add')
+  await page.click('text=Record into Rwanda')
+  await page.waitForTimeout(400)
   await page.click('.phase-card-btn >> text=Details')
   await page.waitForSelector('text=Spent in this phase', { timeout: 8000 })
   await shoot(page, device, '6.5-phase')

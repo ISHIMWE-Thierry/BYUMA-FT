@@ -10,6 +10,8 @@ export interface Account {
   id: string
   name: string
   kind: Method
+  /** The one currency it holds: "Albaraka, TL, 700". */
+  cur: string
 }
 
 /**
@@ -97,8 +99,6 @@ export interface Settings {
   seenTour: boolean
   /** Ways of paying kept off the recorder. */
   hiddenMethods: Method[]
-  /** How the balance is entered: per account, or one total per currency. */
-  balanceBy: 'account' | 'currency'
   /** A note on the phone two days before, and on the day, a plan or income is due. */
   remind: boolean
 }

@@ -2932,15 +2932,6 @@
   );
 }
 
-/* One block of currency fields per account on Update balance. */
-.bal-acc + .bal-acc {
-  margin-top: 6px;
-}
-
-.bal-acc .bal-inputs {
-  margin-top: 0;
-}
-
 /* The little tile carrying an account's icon in its list. */
 .acc-tile {
   width: 30px;
@@ -3253,12 +3244,8 @@
 }
 
 /* ==================================================================
-   Accounts on the Balance screen
+   Account rows (Ways of paying in Profile)
 ================================================================== */
-
-.acc-area {
-  margin-top: 18px;
-}
 
 .acc-row {
   display: flex;
@@ -3280,55 +3267,9 @@
   cursor: pointer;
 }
 
-/* "Into <phase>" — the next expense goes into that phase. */
-.into-bar {
-  position: absolute;
-  top: calc(28px + env(safe-area-inset-top));
-  right: 22px;
-  z-index: 2;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  height: 36px;
-  padding: 0 6px 0 14px;
-  border-radius: 12px;
-  background: rgba(20, 22, 31, 0.06);
-}
-
-.into-text {
-  font: 500 13px/1 var(--font-text);
-  color: var(--ink);
-}
-
-.into-x {
-  width: 28px;
-  height: 28px;
-  border: 0;
-  border-radius: 9px;
-  background: none;
-  color: var(--ink-2);
-  font-size: 13px;
-  cursor: pointer;
-}
-
 /* ==================================================================
    One version: check-ups, received income, due tags, started phases
 ================================================================== */
-
-/* By account / By currency on the Balance screen. */
-.mode-seg {
-  display: flex;
-  gap: 6px;
-  margin-top: 14px;
-  padding: 3px;
-  border-radius: 12px;
-  background: rgba(20, 22, 31, 0.06);
-}
-
-.mode-seg .seg-btn {
-  flex: 1;
-}
 
 /* The little green dot on a phase still running. */
 .phase-live {
@@ -3429,4 +3370,103 @@
 
 .checkup-amt {
   font: 500 13.5px/1 var(--font-text);
+}
+
+/* ==================================================================
+   Simpler balances: one currency per account; an expense into a phase
+================================================================== */
+
+/* The balance card's doors, in two rows: the money and its plans, then
+   the phases. */
+.card-footer-top {
+  margin-bottom: 0;
+}
+
+.card-footer-top .card-footer-btn {
+  border-radius: 0;
+}
+
+.card-footer-2 {
+  margin-top: 0;
+}
+
+.card-footer-2 .card-footer-btn {
+  border-radius: 0 0 18px 18px;
+}
+
+/* One line per account on Update balance: icon, name, its currency, and
+   what is in it. */
+.bal-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px 9px 14px;
+}
+
+.bal-line-name {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  padding: 0;
+  border: 0;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+
+.bal-line-name .plan-name {
+  max-width: 100%;
+}
+
+.bal-line-amt {
+  flex: none;
+  width: 47%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 46px;
+  padding: 0 12px;
+  border: 1px solid var(--hairline);
+  border-radius: 12px;
+  background: var(--sunken);
+}
+
+.bal-line-cur {
+  flex: none;
+  font: 500 12px/1 var(--font-text);
+  color: var(--ink-2);
+}
+
+.bal-line-amt .money-input {
+  font-size: 21px;
+}
+
+/* Everything typed, added up, under the list. */
+.bal-together {
+  display: flex;
+  justify-content: space-between;
+  margin: 14px 4px 0;
+  font: 500 13px/1 var(--font-text);
+  color: var(--ink-2);
+}
+
+.bal-together span:last-child {
+  color: var(--ink);
+}
+
+/* Recording into a phase: the category chips stay inside the box. */
+.phase-rec {
+  margin-top: 10px;
+}
+
+.phase-rec-chips {
+  margin: 10px 0 0;
+  padding: 1px 0 2px;
+}
+
+.phase-rec-chips[data-fade] {
+  mask-image: none;
 }

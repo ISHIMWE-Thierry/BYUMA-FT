@@ -172,8 +172,8 @@ console.log('\n5. A check-up measures what moved unrecorded')
 await bob.page.click('.tab >> text="Analytics"')
 await bob.page.waitForSelector('text=Update balance', { timeout: 10000 })
 await bob.page.click('.card-footer-btn >> text=Update balance')
-await bob.page.waitForSelector('input[aria-label="Cash RWF total"]', { timeout: 10000 })
-await bob.page.fill('input[aria-label="Cash RWF total"]', '840000')
+await bob.page.waitForSelector('input[aria-label="Cash balance"]', { timeout: 10000 })
+await bob.page.fill('input[aria-label="Cash balance"]', '840000')
 await bob.page.click('.btn-save')
 await bob.page.waitForSelector('text=Where the money went', { timeout: 10000 })
 await bob.page.waitForTimeout(1500)
@@ -189,8 +189,8 @@ const running = (await bob.page.textContent('.card-balance')).replace(/\s+/g, ' 
 check('spending since comes off it', /839,100/.test(running), running.slice(0, 60))
 
 await bob.page.click('.card-footer-btn >> text=Update balance')
-await bob.page.waitForSelector('input[aria-label="Cash RWF total"]', { timeout: 10000 })
-await bob.page.fill('input[aria-label="Cash RWF total"]', '800000')
+await bob.page.waitForSelector('input[aria-label="Cash balance"]', { timeout: 10000 })
+await bob.page.fill('input[aria-label="Cash balance"]', '800000')
 await bob.page.click('.btn-save')
 await bob.page.waitForSelector('text=Check-ups', { timeout: 10000 })
 const checkupText = (await bob.page.textContent('.checkup-row')).replace(/\s+/g, ' ')
@@ -204,15 +204,19 @@ const cuDiffs = (cuDoc.documents ?? [])
 check('and it reached Firestore', cuDiffs.includes(-39100), cuDiffs.join(', '))
 
 console.log('\n6. Accounts for the balance, a started phase, income received, a way of paying hidden')
-// An account named on the Balance screen holds part of the balance.
+// An account named on the Balance screen holds part of the balance, in
+// the one currency it is given: "Ziraat, RWF, 100,000".
 await bob.page.click('.card-footer-btn >> text=Update balance')
-await bob.page.waitForSelector('.acc-area', { timeout: 10000 })
-await bob.page.click('.pick-chip >> text=Add an account')
+await bob.page.waitForSelector('input[aria-label="Cash balance"]', { timeout: 10000 })
+await bob.page.click('text=＋ Add an account')
 await bob.page.fill('input[placeholder="What is it? Ziraat, Albaraka…"]', 'Ziraat')
+await bob.page.click('.mini-form .pick-chip >> text=RWF')
 await bob.page.click('text=Add account')
-await bob.page.waitForSelector('input[aria-label="Ziraat RWF total"]', { timeout: 5000 })
-check('a named account gets its own balance rows', true)
-await bob.page.fill('input[aria-label="Ziraat RWF total"]', '100000')
+await bob.page.waitForSelector('input[aria-label="Ziraat balance"]', { timeout: 5000 })
+check('a named account gets its own line', true)
+await bob.page.fill('input[aria-label="Ziraat balance"]', '100000')
+const together = (await bob.page.textContent('.bal-together')).replace(/\s+/g, ' ')
+check('the lines add up before Save', /900,000/.test(together), together)
 await bob.page.click('.btn-save')
 await bob.page.waitForSelector('text=Where the money is', { timeout: 10000 })
 const where = (await bob.page.textContent('.card-list')).replace(/\s+/g, ' ')
@@ -243,6 +247,36 @@ check(
   /21,400/.test(tripCard) && /5 expenses/.test(tripCard),
   tripCard.slice(0, 60),
 )
+// An expense added from the phase's card lands in it, on a day of it. A day
+// outside the phase is refused — and the phase began today.
+await bob.page.click('.phase-card-btn >> text=＋ Add')
+await bob.page.waitForSelector('.phase-rec', { timeout: 5000 })
+await bob.page.fill('.phase-rec input[aria-label="Amount"]', '700')
+await bob.page.click('.phase-rec .editor-method >> text=Cash')
+const yesterday = new Date(Date.now() - 864e5)
+const pad = (n) => String(n).padStart(2, '0')
+await bob.page.fill(
+  '.phase-rec input[aria-label="Day"]',
+  `${yesterday.getFullYear()}-${pad(yesterday.getMonth() + 1)}-${pad(yesterday.getDate())}`,
+)
+await bob.page.click('text=Record into Trip')
+await bob.page.waitForSelector('.phase-rec .form-error', { timeout: 5000 })
+const dayErr = (await bob.page.textContent('.phase-rec .form-error')).replace(/\s+/g, ' ')
+check('a day outside the phase is refused', /inside Trip/.test(dayErr), dayErr)
+const todayKey = new Date()
+await bob.page.fill(
+  '.phase-rec input[aria-label="Day"]',
+  `${todayKey.getFullYear()}-${pad(todayKey.getMonth() + 1)}-${pad(todayKey.getDate())}`,
+)
+await bob.page.click('text=Record into Trip')
+await bob.page.waitForSelector('text=into Trip, today', { timeout: 5000 })
+await bob.page.waitForTimeout(300)
+const tripAfter = (await bob.page.textContent('.phase-card')).replace(/\s+/g, ' ')
+check(
+  'an expense added from the card is in the phase',
+  /22,100/.test(tripAfter) && /6 expenses/.test(tripAfter),
+  tripAfter.slice(0, 60),
+)
 // Out of the totals: Spent this month drops it, the graph keeps it. Every
 // expense this month is in the phase, so the Home card has nothing to show.
 await bob.page.click('.phase-card-btn >> text=Details')
@@ -257,11 +291,11 @@ check(
   'a phase left out of totals is not in Spent this month',
   (await bob.page.locator('.spent-card').count()) === 0,
 )
-// The day strip draws everything, so today's bar still carries the 21,400.
+// The day strip draws everything, so today's bar still carries the 22,100.
 await bob.page.click('.tab >> text="Analytics"')
 await bob.page.waitForSelector('.bar-col[aria-pressed="true"]', { timeout: 10000 })
 const todayBar = (await bob.page.textContent('.bar-col[aria-pressed="true"]')).replace(/\s+/g, ' ')
-check('but the graph still draws it', /21,400/.test(todayBar), todayBar)
+check('but the graph still draws it', /22,100/.test(todayBar), todayBar)
 const monthCard = (await bob.page.textContent('.card-month')).replace(/\s+/g, ' ')
 check('while Spent this month leaves it out', /RWF 0$/.test(monthCard), monthCard)
 
@@ -279,8 +313,9 @@ await bob.page.click('button[aria-label="Received Salary"]')
 await bob.page.waitForSelector('text=received', { timeout: 5000 })
 await bob.page.click('button[aria-label="Back"]')
 await bob.page.waitForSelector('text=Where the money went', { timeout: 10000 })
+// 900,000 at the check-up, less the 5,000 and 700 recorded since, plus 50,000.
 const withIncome = (await bob.page.textContent('.card-balance')).replace(/\s+/g, ' ')
-check('received income is in the balance', /945,000/.test(withIncome), withIncome.slice(0, 60))
+check('received income is in the balance', /944,300/.test(withIncome), withIncome.slice(0, 60))
 
 // A way of paying kept off the recorder.
 await bob.page.click('.tab >> text="Account"')
