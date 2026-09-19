@@ -22,12 +22,12 @@ import {
  *     GitHub repository's Actions variables for the published build).
  */
 const FALLBACK: FirebaseOptions = {
-  apiKey: 'PASTE_API_KEY',
-  authDomain: 'PASTE_PROJECT.firebaseapp.com',
-  projectId: 'PASTE_PROJECT_ID',
-  storageBucket: 'PASTE_PROJECT.firebasestorage.app',
-  messagingSenderId: 'PASTE_SENDER_ID',
-  appId: 'PASTE_APP_ID',
+  apiKey: 'AIzaSyAg5f6SBMW9oRMrQ_yjzGw1uppplL7rTy4',
+  authDomain: 'byuma-ft.firebaseapp.com',
+  projectId: 'byuma-ft',
+  storageBucket: 'byuma-ft.firebasestorage.app',
+  messagingSenderId: '851947720535',
+  appId: '1:851947720535:web:2530f2a944ca784a863812',
 }
 
 const env = import.meta.env

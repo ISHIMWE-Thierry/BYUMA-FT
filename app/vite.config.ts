@@ -1,4 +1,5 @@
 import { execSync } from 'node:child_process'
+import { readFileSync } from 'node:fs'
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
@@ -18,6 +19,74 @@ try {
 }
 const build = new Date().toISOString().slice(0, 10) + (commit ? ` · ${commit}` : '')
 
+/**
+ * A build with no Firebase config makes an app that cannot reach anybody's
+ * account — it opens on "Not connected yet". That has gone out once already,
+ * because an unset variable is simply an empty string and nothing complained.
+ *
+ * A real deployment is stopped. A build on this machine is only warned: the
+ * layout checks, and anyone who just wants to look at the screens, have no
+ * use for a live project.
+ */
+const FB_KEYS = [
+  'VITE_FB_API_KEY',
+  'VITE_FB_AUTH_DOMAIN',
+  'VITE_FB_PROJECT_ID',
+  'VITE_FB_SENDER_ID',
+  'VITE_FB_APP_ID',
+]
+
+function firebaseConfigCheck() {
+  // What Vite resolved, which is the environment plus any .env file — the
+  // same values the app itself will see.
+  let env: Record<string, string> = {}
+
+  return {
+    name: 'byuma:firebase-config',
+    apply: 'build' as const,
+    configResolved(resolved: { env: Record<string, string> }) {
+      env = resolved.env
+    },
+    buildStart() {
+      if (env.VITE_FB_EMULATOR || process.env.VITE_FB_EMULATOR) return
+
+      // The config can arrive two ways, and either is enough: the variables
+      // above, or the FALLBACK block pasted into src/lib/firebase.ts, which
+      // is the path `npm run connect:firebase` takes.
+      try {
+        const src = readFileSync(new URL('./src/lib/firebase.ts', import.meta.url), 'utf8')
+        const block = src.match(/const FALLBACK[\s\S]*?\n\}/)?.[0]
+        if (block && !block.includes('PASTE_')) return
+      } catch {
+        // No source to read — fall through to the variables.
+      }
+
+      const missing = FB_KEYS.filter((k) => !env[k] && !process.env[k])
+      if (!missing.length) return
+
+      // Vercel names itself in the build environment; so does Netlify.
+      const host = process.env.VERCEL ? 'Vercel' : process.env.NETLIFY ? 'Netlify' : ''
+      const where = host
+        ? `${host} → Settings → Environment Variables`
+        : 'app/.env — see app/.env.example, and README section 5'
+      const note = [
+        '',
+        `  Firebase config missing: ${missing.join(', ')}`,
+        '  Built like this, the app cannot sign anyone in or save anything.',
+        `  Add the values at ${where},`,
+        '  or run: npm run connect:firebase',
+        '',
+      ].join('\n')
+
+      if (host) {
+        console.error(note)
+        throw new Error(`Refusing to publish a ${host} build with no Firebase config`)
+      }
+      console.warn(note)
+    },
+  }
+}
+
 // The design is authored at a 390px-wide canvas. Every length in the CSS is
 // written with the exact pixel number from the design and converted to rem at
 // build time, with 1rem = 10 design px. The root font-size then scales with the
@@ -28,6 +97,7 @@ export default defineConfig({
     __BUILD__: JSON.stringify(build),
   },
   plugins: [
+    firebaseConfigCheck(),
     react(),
     VitePWA({
       registerType: 'autoUpdate',

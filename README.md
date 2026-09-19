@@ -231,7 +231,24 @@ Three things to know:
 
 Only needed once, by whoever publishes the app.
 
-**In the Firebase console** (console.firebase.google.com), in your project:
+**The short way — from your own terminal:**
+
+```
+cd app
+npm run setup:firebase
+```
+
+It signs you in to Google (a browser window opens), finds your Firebase
+project or creates one, adds a web app, writes that app's config into the
+code, publishes the Firestore rules, and ends with the readiness check.
+The two things the command line cannot switch on — the sign-in methods and
+the authorized addresses — it hands you as links to the exact console
+page. Run it again after clicking them and the check turns green; then
+commit and push. If you already have a project, name it:
+`npm run setup:firebase -- your-project-id`.
+
+**The long way — by hand.** In the Firebase console
+(console.firebase.google.com), in your project:
 
 1. **Authentication → Sign-in method → Email/Password → Enable.** Enable
    **Google** in the same place if you want the one-tap sign-in; it asks
@@ -242,8 +259,24 @@ Only needed once, by whoever publishes the app.
 3. **Project settings → General → Your apps → Web app.** Copy the config
    block it shows (`apiKey`, `authDomain`, `projectId`, and the rest).
 
-**In this repository**, under
-*Settings → Secrets and variables → Actions → Variables*, add one repository
+**Then connect the app to it.** One command takes that config block and
+writes it where the app looks — `app/.env` for local runs, and the
+`FALLBACK` block in `app/src/lib/firebase.ts`, which is what every
+published copy carries:
+
+```
+cd app
+pbpaste | npm run connect:firebase          # or: -- <apiKey> <projectId>
+git commit -am "Point the app at Firebase" && git push
+```
+
+That is the whole connection: nothing to set up in the repository
+settings, and nothing in a hosting dashboard. It finishes by running the
+readiness check below, so you find out in the same breath what is still
+switched off in the console.
+
+**Or keep the config out of the code**, under
+*Settings → Secrets and variables → Actions → Variables*, with one repository
 variable per line of that config:
 
 | Variable | From the config |
@@ -255,11 +288,11 @@ variable per line of that config:
 | `VITE_FB_SENDER_ID` | `messagingSenderId` |
 | `VITE_FB_APP_ID` | `appId` |
 
-They are *variables*, not secrets, because they are public either way — and
-a secret would be masked in the build log, which only makes trouble harder
-to read. If you would rather not use the repository settings at all, paste
-the same values into the `FALLBACK` block at the top of
-`app/src/lib/firebase.ts` instead.
+Put them under *Variables* rather than *Secrets*: they are public either
+way, and a secret is masked in the build log, which only makes trouble
+harder to read. The build reads both lists, so nothing breaks if they went
+into the wrong one. Hosting the app somewhere else means adding them again
+in that dashboard, which is the one thing `connect:firebase` saves you.
 
 **Publish the rules**, once:
 
@@ -268,7 +301,26 @@ npx firebase deploy --only firestore:rules
 ```
 
 Until the keys are in place the app cannot reach any account, and says so
-on its own screen rather than failing quietly.
+on its own screen rather than failing quietly. A published build will not
+go out without them at all: the GitHub workflow stops and names the ones it
+is missing, and so does a Vercel build.
+
+**Ask the project whether it is ready.** One command checks the five things
+that stop people signing in or saving — the key, the authorized addresses,
+email sign-in, Google sign-in, and whether Firestore exists with its rules
+published. It signs nobody in and writes nothing:
+
+```
+cd app
+npm run check:firebase -- <apiKey> <projectId>
+```
+
+It also reads `app/.env` if you have one, or the config block straight off
+your clipboard (`pbpaste | npm run check:firebase`). Every failure names the
+console page that fixes it. Add `-- --prove` and it goes one step further:
+it signs up a throwaway person with the same calls the app makes, saves and
+reads their document, checks that a stranger and another signed-in person
+are both refused, and removes everything it made.
 
 **Checking it locally**, without touching the real project:
 
@@ -302,9 +354,16 @@ root directory or a framework by hand.
    add your Vercel address (`something.vercel.app`, plus your own domain
    if you attach one). Sign-in is refused from any address not on that
    list — the app names the address it was refused for, so this is easy
-   to spot.
+   to spot. To confirm it took:
+
+   ```
+   cd app
+   npm run check:firebase -- <apiKey> <projectId> --domain your-app.vercel.app
+   ```
 
 That is all. Vercel rebuilds on every push to `main`, the same as Pages.
+If you skip step 2, the build stops rather than publishing an app that
+cannot reach anyone's account.
 
 **Both links keep working.** GitHub Pages and Vercel are two doors into
 the same Firebase project, so the same email and password show the same
@@ -436,9 +495,17 @@ and sits in the middle of the window.
 cd app
 npm install
 npm run dev          # http://localhost:5173
-npm test             # 56 unit tests over the money engine
+npm test             # 85 unit tests over the money engine
 npm run build        # production build into app/dist
+npm run setup:firebase   # sign in, find or create the project, connect it
+npm run connect:firebase # just write a config block into the app
+npm run check:firebase   # ask the project whether it is ready (-- --prove goes further)
+npm run check:live       # drive the built app against the real project in a browser
 ```
+
+A build with no Firebase config at all warns and carries on, so the layout
+checks and a quick look at the screens still work; the same build on
+Vercel or Netlify stops instead.
 
 Layout check across all four phones (needs Playwright, which is not a
 project dependency so CI stays fast):
@@ -464,10 +531,20 @@ app/src/
   lib/money.ts      formatting, numpad rules
   lib/rates.ts      the rate table, live FX fetch, conversion
   lib/calc.ts       spendable, the warnings, balance arithmetic, aggregates
-  lib/crypto.ts     PBKDF2 password hashing
+  lib/firebase.ts   the one place Firebase is set up
+  lib/cloud.ts      reading and writing the one document per person
   lib/passkey.ts    unlocking with the phone's own fingerprint/face/PIN
-  lib/storage.ts    accounts, session and per-account data in localStorage
+  lib/storage.ts    the shape of a save, and reading an older one
   useApp.ts         all state and every action
   screens/          one file per group of screens
   styles/           tokens, base (real px), app (design px)
+
+app/scripts/
+  setup-firebase.mjs    the whole Firebase setup from your own terminal
+  connect-firebase.mjs  writes a config into .env and firebase.ts
+  check-firebase.mjs    is the real project ready? (no emulator needed)
+  check-live.mjs        the browser flow against the real project
+  check-cloud.mjs       drives the app against the emulators end to end
+  check-layout.mjs      every screen on four phone sizes
+  make-icons.mjs        the home-screen icons from the logo
 ```
