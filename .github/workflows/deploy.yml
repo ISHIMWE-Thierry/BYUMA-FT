@@ -51,16 +51,28 @@ jobs:
           SENDER_ID: ${{ vars.VITE_FB_SENDER_ID || secrets.VITE_FB_SENDER_ID }}
           APP_ID: ${{ vars.VITE_FB_APP_ID || secrets.VITE_FB_APP_ID }}
         run: |
-          missing=""
-          for name in API_KEY AUTH_DOMAIN PROJECT_ID SENDER_ID APP_ID; do
-            if [ -z "${!name}" ]; then missing="$missing VITE_FB_$name"; fi
-          done
-          if [ -n "$missing" ]; then
-            echo "::error::Missing Firebase config:$missing"
-            echo "::error::Add them at Settings -> Secrets and variables -> Actions."
-            echo "::error::Without them the published app cannot reach any account,"
-            echo "::error::so this build is stopped rather than published broken."
-            exit 1
+          # The config can arrive two ways and either is enough: these
+          # variables, or the FALLBACK block in src/lib/firebase.ts that
+          # `npm run connect:firebase` fills in. Only look for variables
+          # when that block is still holding placeholders — the word
+          # PASTE_ also appears further down the file, in the test that
+          # decides whether the app is configured at all.
+          fallback=$(sed -n '/const FALLBACK/,/^}/p' src/lib/firebase.ts 2>/dev/null)
+          if [ -z "$fallback" ] || printf '%s' "$fallback" | grep -q 'PASTE_'; then
+            missing=""
+            for name in API_KEY AUTH_DOMAIN PROJECT_ID SENDER_ID APP_ID; do
+              if [ -z "${!name}" ]; then missing="$missing VITE_FB_$name"; fi
+            done
+            if [ -n "$missing" ]; then
+              echo "::error::Missing Firebase config:$missing"
+              echo "::error::Add them at Settings -> Secrets and variables -> Actions,"
+              echo "::error::or run: cd app && npm run connect:firebase"
+              echo "::error::Without them the published app cannot reach any account,"
+              echo "::error::so this build is stopped rather than published broken."
+              exit 1
+            fi
+          else
+            echo "Firebase config is in src/lib/firebase.ts."
           fi
           {
             echo "api_key=$API_KEY"
