@@ -1,0 +1,8 @@
+# Only what the build needs goes up. The design references, the local
+# emulator logs and the layout screenshots are large and irrelevant to it.
+Byuma FT Lite V2
+*.log
+app/shots
+app/node_modules
+app/dist
+.github

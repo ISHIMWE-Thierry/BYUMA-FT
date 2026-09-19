@@ -335,35 +335,38 @@ npm run check:cloud        # signs up, records, syncs, migrates, checks the rule
 
 ## 6. Hosting it on Vercel
 
-The app is a folder of static files, so Vercel serves it as happily as
-GitHub Pages does. Everything Vercel needs to build it is already in
-`vercel.json` at the top of this repository — the install and build
-commands, and where the built files land — so you do not have to set a
-root directory or a framework by hand.
+The app is on Vercel as well, at the same project, with nothing to set up
+in its dashboard:
 
-1. Go to **vercel.com/new** and import **byumarwanda/Byuma-FT-Lite**.
-   Leave the build settings alone; `vercel.json` fills them in.
-2. Before the first deploy finishes, open **Settings → Environment
-   Variables** and add the same six values from section 5 —
-   `VITE_FB_API_KEY`, `VITE_FB_AUTH_DOMAIN`, `VITE_FB_PROJECT_ID`,
-   `VITE_FB_STORAGE_BUCKET`, `VITE_FB_SENDER_ID`, `VITE_FB_APP_ID`.
-   Tick **Production**, **Preview** and **Development** for each, then
-   redeploy so the build picks them up.
-3. **Tell Firebase about the new address.** In the Firebase console:
-   **Authentication → Settings → Authorized domains → Add domain**, and
-   add your Vercel address (`something.vercel.app`, plus your own domain
-   if you attach one). Sign-in is refused from any address not on that
-   list — the app names the address it was refused for, so this is easy
-   to spot. To confirm it took:
+**https://byuma-ft-lite.vercel.app/**
 
-   ```
-   cd app
-   npm run check:firebase -- <apiKey> <projectId> --domain your-app.vercel.app
-   ```
+Everything Vercel needs to build it is in `vercel.json` at the top of this
+repository, and the Firebase config travels inside the code, so there are
+no environment variables to add. The address is already on Firebase's
+authorized list, so sign-in works from it.
 
-That is all. Vercel rebuilds on every push to `main`, the same as Pages.
-If you skip step 2, the build stops rather than publishing an app that
-cannot reach anyone's account.
+**Publishing a new version there** is one command from the repository's
+top folder, signed in to the Vercel account that owns the project:
+
+```
+npx vercel deploy --prod
+```
+
+**It publishes itself on every push.** Vercel reads the copy of this
+repository at **github.com/ISHIMWE-Thierry/BYUMA-FT** — the GitHub account
+the Vercel project belongs to, which is why that copy exists. Push to its
+`main` and Vercel rebuilds; the workflow there also publishes a GitHub
+Pages copy at **https://ishimwe-thierry.github.io/BYUMA-FT/**, because the
+build takes its base path from whatever the repository is called. Keeping
+the two repositories the same is one push:
+
+```
+git push https://github.com/ISHIMWE-Thierry/BYUMA-FT.git main
+```
+
+`.vercelignore` keeps the design references, the layout screenshots and
+the emulator logs out of the upload — they are large and the build has no
+use for them.
 
 **Both links keep working.** GitHub Pages and Vercel are two doors into
 the same Firebase project, so the same email and password show the same
