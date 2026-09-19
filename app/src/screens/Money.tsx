@@ -37,10 +37,22 @@ function AccountsArea({ app }: { app: App }) {
                 <span className="acc-tile" style={{ opacity: a.hidden ? 0.45 : 1 }}>
                   <Icon />
                 </span>
-                <span className="plan-main" style={{ opacity: a.hidden ? 0.55 : 1 }}>
+                {/* With Pro a tap on the name renames it; the new name is
+                    what the recorder then shows. */}
+                <span
+                  className="plan-main"
+                  style={{ opacity: a.hidden ? 0.55 : 1, cursor: app.pro ? 'pointer' : 'default' }}
+                  onClick={app.pro ? () => app.openAccForm(a) : undefined}
+                >
                   <span className="plan-name">{a.name}</span>
                   <span className="plan-date">
-                    {a.hidden ? 'off the recorder' : isStandard(a.id) ? 'standard' : 'yours'}
+                    {a.hidden
+                      ? 'off the recorder'
+                      : app.pro
+                        ? 'tap to rename'
+                        : isStandard(a.id)
+                          ? 'standard'
+                          : 'yours'}
                   </span>
                 </span>
                 <button
@@ -60,6 +72,7 @@ function AccountsArea({ app }: { app: App }) {
                   <CrossIcon />
                 </button>
               </div>
+              {app.pro && form && form.id === a.id && <AccFormBox app={app} inCard />}
             </div>
           )
         })}

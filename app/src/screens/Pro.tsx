@@ -112,7 +112,10 @@ export function Accounts({ app }: { app: App }) {
 export function AccFormBox({ app, inCard }: { app: App; inCard?: boolean }) {
   const form = app.accForm
   if (!form) return null
-  const standard = form.id !== null && isStandard(form.id)
+  // Without Pro the standard three keep their names; with it, any account
+  // is called whatever the person calls it — and that name is what the
+  // recorder shows as the way of paying.
+  const standard = form.id !== null && isStandard(form.id) && !app.pro
 
   return (
     <div className={inCard ? 'mini-form mini-form-card' : 'mini-form'}>

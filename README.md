@@ -396,10 +396,11 @@ A switch in **Profile → Byuma Pro**. Turning it on opens a short tour of
 what it adds; turning it off keeps everything you made, just out of sight.
 Nothing about the app changes for anyone who leaves it off.
 
-**Name your own accounts.** Instead of only Cash, Bank and MoMo, name the
-places you actually keep money — Ziraat, Albaraka, a drawer at home — and
-give each one a bank, cash or phone icon. The three standard accounts keep
-their names; yours are yours.
+**Name your accounts.** Name the places you actually keep money — Ziraat,
+Albaraka, a drawer at home — and give each one a bank, cash or phone icon.
+With Pro, Cash and Bank can be renamed too: tap a name on the Balance
+screen. Whatever you call an account is what the recorder shows as the
+way you paid.
 
 **Phases.** A phase is a stretch of time with a name: your months in
 Rwanda, then being back in Türkiye. Expenses fall into a phase by their
