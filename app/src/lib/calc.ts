@@ -257,8 +257,13 @@ export function inPhase(phase: Phase, at: number): boolean {
   return !phase.to || day <= phase.to
 }
 
+/** By its date, or because it was added to the phase by hand. */
+export function phaseHas(phase: Phase, item: Expense): boolean {
+  return inPhase(phase, item.at) || !!phase.items?.includes(item.id)
+}
+
 export function phaseItems(items: Expense[], phase: Phase): Expense[] {
-  return items.filter((i) => inPhase(phase, i.at))
+  return items.filter((i) => phaseHas(phase, i))
 }
 
 /** The phase a moment falls in. Newest start wins if two overlap. */

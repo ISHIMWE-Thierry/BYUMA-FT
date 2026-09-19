@@ -1,30 +1,29 @@
+import { useState } from 'react'
 import type { App } from '../useApp'
 import { ACCENT, DANGER, FormError, LINE, PasswordField, Wordmark } from '../components/ui'
 import { GoogleIcon, UnlockIcon } from '../components/icons'
 
 const border = (app: App, field: string) => (app.errField === field ? DANGER : LINE)
 
-/** One tap in, with no password to make up or remember. */
-function GoogleButton({ app, label }: { app: App; label: string }) {
+/**
+ * Google is the way in. One tap, no password to make up or remember — so it
+ * is the one big button, drawn where a thumb already rests rather than up
+ * at the top of the screen. Email and password are still there for anyone
+ * who wants them, one tap below.
+ */
+function GoogleButton({ app }: { app: App }) {
   return (
     <button
       type="button"
-      className="unlock google-btn"
+      className="google-main"
+      style={{ background: ACCENT }}
       onClick={() => void app.signInWithGoogle()}
     >
-      <GoogleIcon />
-      {label}
+      <span className="google-main-icon">
+        <GoogleIcon />
+      </span>
+      Continue with Google
     </button>
-  )
-}
-
-function OrLine() {
-  return (
-    <div className="auth-divider">
-      <span />
-      <span className="auth-divider-word">or</span>
-      <span />
-    </div>
   )
 }
 
@@ -39,6 +38,8 @@ function UnlockButton({ app, label }: { app: App; label: string }) {
 }
 
 export function SignUp({ app }: { app: App }) {
+  const [byEmail, setByEmail] = useState(false)
+
   return (
     <div className="page-auth">
       <div className="wordmark">
@@ -46,58 +47,66 @@ export function SignUp({ app }: { app: App }) {
       </div>
       <div className="headline-auth">Track what you spend.</div>
 
-      <div className="field-group">
-        <GoogleButton app={app} label="Continue with Google" />
-      </div>
-      <OrLine />
-
-      <div className="mt-22">
-        <input
-          className="field"
-          type="text"
-          autoComplete="name"
-          placeholder="Name"
-          value={app.fName}
-          onChange={(e) => {
-            app.setFName(e.target.value)
-            app.clearErr()
-          }}
-          style={{ borderColor: border(app, 'name') }}
-        />
-        <input
-          className="field"
-          type="email"
-          autoComplete="email"
-          autoCapitalize="none"
-          placeholder="Email"
-          value={app.fEmail}
-          onChange={(e) => {
-            app.setFEmail(e.target.value)
-            app.clearErr()
-          }}
-          style={{ borderColor: border(app, 'email') }}
-        />
-        <PasswordField
-          placeholder="Password"
-          autoComplete="new-password"
-          value={app.fPass}
-          onChange={(v) => {
-            app.setFPass(v)
-            app.clearErr()
-          }}
-          borderColor={border(app, 'pass')}
-        />
-        <FormError message={app.formError} />
+      <div className="auth-main">
+        <GoogleButton app={app} />
+        {!byEmail && (
+          <button type="button" className="auth-email-link" onClick={() => setByEmail(true)}>
+            Use email instead
+          </button>
+        )}
       </div>
 
-      <button
-        type="button"
-        className="btn-primary mt-22"
-        style={{ background: ACCENT }}
-        onClick={() => void app.signUp()}
-      >
-        Create account
-      </button>
+      {byEmail && (
+        <>
+          <div className="mt-22">
+            <input
+              className="field"
+              type="text"
+              autoComplete="name"
+              placeholder="Name"
+              value={app.fName}
+              onChange={(e) => {
+                app.setFName(e.target.value)
+                app.clearErr()
+              }}
+              style={{ borderColor: border(app, 'name') }}
+            />
+            <input
+              className="field"
+              type="email"
+              autoComplete="email"
+              autoCapitalize="none"
+              placeholder="Email"
+              value={app.fEmail}
+              onChange={(e) => {
+                app.setFEmail(e.target.value)
+                app.clearErr()
+              }}
+              style={{ borderColor: border(app, 'email') }}
+            />
+            <PasswordField
+              placeholder="Password"
+              autoComplete="new-password"
+              value={app.fPass}
+              onChange={(v) => {
+                app.setFPass(v)
+                app.clearErr()
+              }}
+              borderColor={border(app, 'pass')}
+            />
+          </div>
+
+          <button
+            type="button"
+            className="btn-primary mt-22"
+            style={{ background: ACCENT }}
+            onClick={() => void app.signUp()}
+          >
+            Create account
+          </button>
+        </>
+      )}
+      <FormError message={app.formError} />
 
       <div className="auth-alt">
         <span className="auth-alt-text">Already have an account?</span>
@@ -115,6 +124,8 @@ export function SignUp({ app }: { app: App }) {
 }
 
 export function SignIn({ app }: { app: App }) {
+  const [byEmail, setByEmail] = useState(false)
+
   return (
     <div className="page-auth">
       <div className="wordmark">
@@ -122,50 +133,58 @@ export function SignIn({ app }: { app: App }) {
       </div>
       <div className="headline-auth">Welcome back.</div>
 
-      <div className="field-group">
-        <GoogleButton app={app} label="Continue with Google" />
-      </div>
-      <OrLine />
-
-      <div className="mt-22">
-        <input
-          className="field"
-          type="email"
-          autoComplete="email"
-          autoCapitalize="none"
-          placeholder="Email"
-          value={app.fEmail}
-          onChange={(e) => {
-            app.setFEmail(e.target.value)
-            app.clearErr()
-          }}
-          style={{ borderColor: border(app, 'email') }}
-        />
-        <PasswordField
-          placeholder="Password"
-          autoComplete="current-password"
-          value={app.fPass}
-          onChange={(v) => {
-            app.setFPass(v)
-            app.clearErr()
-          }}
-          borderColor={border(app, 'pass')}
-        />
-        <FormError message={app.formError} />
+      <div className="auth-main">
+        <GoogleButton app={app} />
+        {!byEmail && (
+          <button type="button" className="auth-email-link" onClick={() => setByEmail(true)}>
+            Use email instead
+          </button>
+        )}
       </div>
 
-      <button
-        type="button"
-        className="btn-primary mt-22"
-        style={{ background: ACCENT }}
-        onClick={() => void app.signIn()}
-      >
-        Sign in
-      </button>
+      {byEmail && (
+        <>
+          <div className="mt-22">
+            <input
+              className="field"
+              type="email"
+              autoComplete="email"
+              autoCapitalize="none"
+              placeholder="Email"
+              value={app.fEmail}
+              onChange={(e) => {
+                app.setFEmail(e.target.value)
+                app.clearErr()
+              }}
+              style={{ borderColor: border(app, 'email') }}
+            />
+            <PasswordField
+              placeholder="Password"
+              autoComplete="current-password"
+              value={app.fPass}
+              onChange={(v) => {
+                app.setFPass(v)
+                app.clearErr()
+              }}
+              borderColor={border(app, 'pass')}
+            />
+          </div>
 
-      <button type="button" className="forgot-link" onClick={app.goForgot}>
-        Forgot your password?
-      </button>
+          <button
+            type="button"
+            className="btn-primary mt-22"
+            style={{ background: ACCENT }}
+            onClick={() => void app.signIn()}
+          >
+            Sign in
+          </button>
+
+          <button type="button" className="forgot-link" onClick={app.goForgot}>
+            Forgot your password?
+          </button>
+        </>
+      )}
+      <FormError message={app.formError} />
 
       <div className="auth-alt">
         <span className="auth-alt-text">New here?</span>

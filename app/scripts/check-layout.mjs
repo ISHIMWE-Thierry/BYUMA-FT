@@ -98,6 +98,7 @@ for (const device of DEVICES) {
   await page.waitForSelector('text=Track what you spend.')
   await shoot(page, device, '1.1-signup')
 
+  await page.click('text=Use email instead')
   await page.fill('input[placeholder="Name"]', 'Thierry')
   await page.fill('input[placeholder="Email"]', `thierry+${RUN}-${device.name}@example.com`)
   await page.fill('input[placeholder="Password"]', 'ubuzima2026')

@@ -109,7 +109,7 @@ export function Accounts({ app }: { app: App }) {
   )
 }
 
-function AccFormBox({ app, inCard }: { app: App; inCard?: boolean }) {
+export function AccFormBox({ app, inCard }: { app: App; inCard?: boolean }) {
   const form = app.accForm
   if (!form) return null
   const standard = form.id !== null && isStandard(form.id)
@@ -402,7 +402,7 @@ const SLIDES = [
   },
   {
     title: 'Name your seasons.',
-    body: 'A phase is a stretch of time with a name. Your months in Rwanda can be read on their own, apart from the months since.',
+    body: 'A phase is a stretch of time with a name. In History, hold the first expense and tap the last — that run becomes a phase.',
   },
   {
     title: 'Nothing is ever lost.',

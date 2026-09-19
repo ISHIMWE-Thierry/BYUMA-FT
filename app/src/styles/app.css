@@ -2988,3 +2988,278 @@
   border-radius: 50%;
   background: #fff;
 }
+
+/* ==================================================================
+   Reach: the amount, pushed down to the hand
+================================================================== */
+
+/* An empty band above the amount. It lands the figure roughly where the
+   note field used to be, so the whole recorder sits under the thumb on a
+   tall phone; everything below moves down with it. */
+.reach {
+  height: 92px;
+}
+
+/* Rows that can be held must not turn into a text selection. */
+.tl-row {
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+/* ==================================================================
+   Sign in: Google first, where the thumb is
+================================================================== */
+
+/* Sits a good way down the screen on its own, rather than under the
+   headline; the email form, when opened, unfolds beneath it. */
+.page-auth {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
+/* Centred in whatever the headline leaves free, which on a phone is the
+   middle of the screen — where a thumb already is. Opening the email form
+   adds height below and the button simply rises to make room. */
+.auth-main {
+  margin-top: auto;
+  margin-bottom: auto;
+  padding: 36px 0 28px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+
+.google-main {
+  width: 100%;
+  height: 58px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 11px;
+  border: 0;
+  border-radius: 17px;
+  color: #fff;
+  font: 500 15.5px/1 var(--font-text);
+  cursor: pointer;
+  box-shadow: 0 8px 22px rgba(20, 22, 31, 0.14);
+}
+
+.google-main-icon {
+  display: flex;
+  width: 26px;
+  height: 26px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: #fff;
+}
+
+.auth-email-link {
+  border: 0;
+  background: none;
+  padding: 6px 4px;
+  color: var(--ink-2);
+  font: 500 13.5px/1 var(--font-text);
+  cursor: pointer;
+}
+
+/* ==================================================================
+   Phases on the History screen
+================================================================== */
+
+.phase-strip {
+  position: relative;
+  display: flex;
+  gap: 7px;
+  align-items: center;
+  overflow-x: auto;
+  scrollbar-width: none;
+  margin: 0 -22px 18px;
+  padding: 1px 22px 2px;
+}
+
+.phase-strip::-webkit-scrollbar {
+  display: none;
+}
+
+.phase-chip {
+  flex: none;
+  height: 34px;
+  padding: 0 14px;
+  border: 1px solid var(--hairline);
+  border-radius: 11px;
+  font: 500 13px/1 var(--font-text);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.phase-hint {
+  flex: none;
+  padding-left: 4px;
+  color: var(--muted);
+  font: 400 12.5px/1 var(--font-text);
+  white-space: nowrap;
+}
+
+/* The bar that appears while a run is being drawn or expenses picked. */
+.sel-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 48px;
+  padding: 7px 8px 7px 14px;
+  margin-bottom: 14px;
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: 0 1px 2px rgba(20, 22, 31, 0.05);
+}
+
+.sel-text {
+  flex: 1;
+  font: 500 13.5px/1.3 var(--font-text);
+  color: var(--ink);
+}
+
+.sel-name {
+  flex: 1;
+  min-width: 0;
+  height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--hairline);
+  border-radius: 10px;
+  background: var(--sunken);
+  outline: none;
+  font: 400 14px/1 var(--font-text);
+  color: var(--ink);
+}
+
+.sel-cancel,
+.sel-save {
+  flex: none;
+  height: 34px;
+  padding: 0 13px;
+  border: 0;
+  border-radius: 10px;
+  font: 500 13px/1 var(--font-text);
+  cursor: pointer;
+}
+
+.sel-cancel {
+  background: none;
+  color: var(--ink-2);
+}
+
+.sel-save {
+  color: #fff;
+}
+
+/* A row that is part of the run, or has been picked. */
+.tl-row-picked {
+  background: rgba(20, 22, 31, 0.045);
+}
+
+.tl-row-dim {
+  opacity: 0.38;
+  cursor: default;
+}
+
+/* The phase being read, summed. */
+.phase-card {
+  padding: 16px 18px 12px;
+  border-radius: 18px;
+  background: var(--surface);
+  box-shadow: 0 1px 2px rgba(20, 22, 31, 0.05);
+}
+
+.phase-card-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.phase-card-name {
+  font: 500 15px/1.2 var(--font-text);
+  color: var(--ink);
+}
+
+.phase-card-dates {
+  font: 400 12.5px/1 var(--font-text);
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.phase-card-figures {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.phase-card-sum {
+  font-family: var(--font-title);
+  font-size: 30px;
+  line-height: 1;
+  color: var(--ink);
+}
+
+.phase-card-count {
+  font: 400 12.5px/1 var(--font-text);
+  color: var(--muted);
+}
+
+.phase-card-actions {
+  display: flex;
+  margin-top: 10px;
+  border-top: 1px solid var(--divider);
+}
+
+.phase-card-btn {
+  flex: 1;
+  height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 0;
+  background: none;
+  color: var(--ink-2);
+  font: 500 13px/1 var(--font-text);
+  cursor: pointer;
+}
+
+.phase-card-btn + .phase-card-btn {
+  border-left: 1px solid var(--divider);
+}
+
+/* ==================================================================
+   Accounts on the Balance screen
+================================================================== */
+
+.acc-area {
+  margin-top: 18px;
+}
+
+.acc-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 8px 11px 16px;
+}
+
+.acc-eye {
+  display: flex;
+  width: 36px;
+  height: 36px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  color: var(--ink-2);
+  cursor: pointer;
+}

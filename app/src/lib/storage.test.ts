@@ -135,3 +135,34 @@ describe('accounts arrive without disturbing what was there', () => {
     expect(d.phases.map((p) => p.name)).toEqual(['Rwanda'])
   })
 })
+
+describe('what arrives with the History phases', () => {
+  it('keeps an account hidden from the recorder, and the expenses put into a phase by hand', () => {
+    const d = normalise({
+      accounts: [
+        { id: 'cash', name: 'Cash', kind: 'cash' },
+        { id: 'momo', name: 'MoMo', kind: 'momo', hidden: true },
+      ],
+      phases: [{ id: 'p', name: 'Rwanda', from: '2026-06-01', to: '2026-09-02', items: ['x', 'y'] }],
+    })
+    expect(d.accounts.find((a) => a.id === 'momo')?.hidden).toBe(true)
+    expect(d.accounts.find((a) => a.id === 'cash')?.hidden).toBeUndefined()
+    expect(d.phases[0].items).toEqual(['x', 'y'])
+  })
+
+  it('shows the tour to a brand new person, and never again once they have seen it', () => {
+    expect(normalise(null).settings.seenTour).toBe(false)
+    expect(normalise({ settings: { seenTour: true } } as never).settings.seenTour).toBe(true)
+  })
+
+  it('counts a save from before the flag as toured if anything was ever recorded in it', () => {
+    const used = normalise({
+      items: [{ id: 'a', amount: 1, acc: 'cash', note: '', cur: 'RWF', at: 1 }],
+    } as never)
+    expect(used.settings.seenTour).toBe(true)
+    const heldOnly = normalise({ balances: { RWF: 500 } } as never)
+    expect(heldOnly.settings.seenTour).toBe(true)
+    const empty = normalise({ settings: { round: false } } as never)
+    expect(empty.settings.seenTour).toBe(false)
+  })
+})

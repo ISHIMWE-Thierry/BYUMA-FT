@@ -30,6 +30,7 @@ export function Home({ app }: { app: App }) {
   // once, independently of this.
   const [shown, setShown] = useState(true)
   const hidden = useRef<HTMLInputElement>(null)
+  const noteField = useRef<HTMLInputElement>(null)
   const cta = useRef<HTMLButtonElement>(null)
   const { data, mainCur, num, amt } = app
   const items = data.items
@@ -55,6 +56,17 @@ export function Home({ app }: { app: App }) {
   // Choosing a category is the last step, so let the keyboard go with it.
   const done = () => (document.activeElement as HTMLElement | null)?.blur()
 
+  // Picking the account is the step after the amount, so the number
+  // keyboard has done its job: it goes, and the reason comes into view
+  // where the keyboard was covering it.
+  const pickAcc = (id: string) => {
+    app.setAcc(id)
+    done()
+    window.setTimeout(() => {
+      noteField.current?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    }, 60)
+  }
+
   const total = sumIn(rates, items, mainCur)
   const allSum = total || 1
 
@@ -62,6 +74,10 @@ export function Home({ app }: { app: App }) {
     <div>
       {/* ---------------- the recorder ---------------- */}
       <div className="recorder">
+        {/* The amount used to sit at the very top, a stretch for a thumb on
+            a tall phone. This empty band pushes it — and everything under
+            it — down to where the hand already is. */}
+        <div className="reach" aria-hidden="true" />
         <div className="amount-display" onClick={() => hidden.current?.focus()}>
           <span
             className="amount-code"
@@ -94,9 +110,9 @@ export function Home({ app }: { app: App }) {
         {/* Where the money comes out of. Up to three sit side by side as
             the design drew them; a Pro list longer than that scrolls
             sideways instead of squeezing every name thinner. */}
-        {app.accounts.length <= 3 ? (
+        {app.shownAccounts.length <= 3 ? (
           <div className="methods">
-            {app.accounts.map((a) => {
+            {app.shownAccounts.map((a) => {
               const Icon = MICON[a.kind]
               return (
                 <button
@@ -104,7 +120,7 @@ export function Home({ app }: { app: App }) {
                   type="button"
                   className="method-btn"
                   style={pick(app.acc === a.id)}
-                  onClick={() => app.setAcc(a.id)}
+                  onClick={() => pickAcc(a.id)}
                 >
                   <span style={{ display: 'flex' }}>
                     <Icon />
@@ -116,7 +132,7 @@ export function Home({ app }: { app: App }) {
           </div>
         ) : (
           <ChipScroller className="methods methods-many">
-            {app.accounts.map((a) => {
+            {app.shownAccounts.map((a) => {
               const Icon = MICON[a.kind]
               return (
                 <button
@@ -124,7 +140,7 @@ export function Home({ app }: { app: App }) {
                   type="button"
                   className="method-btn"
                   style={pick(app.acc === a.id)}
-                  onClick={() => app.setAcc(a.id)}
+                  onClick={() => pickAcc(a.id)}
                 >
                   <span style={{ display: 'flex' }}>
                     <Icon />
@@ -137,6 +153,7 @@ export function Home({ app }: { app: App }) {
         )}
 
         <input
+          ref={noteField}
           className="note-field"
           type="text"
           placeholder="What was it for?"
