@@ -412,9 +412,10 @@ last summer today. Two places to work with them:
 - **History.** A strip of phase names along the top filters the list; the
   one you pick shows its total and how many expenses it holds. To make one
   from what is already there, **hold the first expense and tap the last**:
-  the run lights up, you name it, Save. **Add missed** picks expenses from
-  outside its dates into it; the cross on such an expense takes it back
-  out.
+  the run lights up, you name it, Save. **＋ Record** on the phase's card
+  records a new expense straight into it; **Add missed** picks expenses
+  from outside its dates into it; the cross on such an expense takes it
+  back out.
 - **Analytics → Phases** is where a phase is read in full — days, average
   per day, where the money came from, what it went on — and where one is
   made by dates, edited, ended or removed.

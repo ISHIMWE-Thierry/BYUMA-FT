@@ -233,8 +233,11 @@ function PhaseCard({ app, phase, count }: { app: App; phase: Phase; count: numbe
         </span>
       </div>
       <div className="phase-card-actions">
+        <button type="button" className="phase-card-btn" onClick={() => app.recordInto(phase)}>
+          ＋ Record
+        </button>
         <button type="button" className="phase-card-btn" onClick={() => app.startPick(phase)}>
-          ＋ Add missed
+          Add missed
         </button>
         <button type="button" className="phase-card-btn" onClick={() => app.openPhase(phase.id, 'history')}>
           Details

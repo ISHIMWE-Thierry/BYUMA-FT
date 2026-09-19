@@ -261,6 +261,18 @@ check('picking can be cancelled', (await bob.page.locator('.sel-bar').count()) =
 await bob.page.click('.phase-chip >> text=All')
 check('All brings every expense back', (await bob.page.locator('.tl-row').count()) === rowCount)
 
+// Recording from the phase's own page puts the new expense into it.
+await bob.page.click('.phase-chip >> text=Trip')
+await bob.page.waitForSelector('.phase-card')
+await bob.page.click('.phase-card-btn >> text=Record')
+await bob.page.waitForSelector('.into-bar', { timeout: 5000 })
+check('the recorder says which phase it is recording into', /Trip/.test(await bob.page.textContent('.into-bar')))
+await record(bob.page, '500', 'Cash')
+await bob.page.waitForSelector('.phase-card', { timeout: 5000 })
+const afterInto = (await bob.page.textContent('.phase-card')).replace(/\s+/g, ' ')
+check('it lands back in the phase, one expense richer', new RegExp((rowCount + 1) + ' expenses').test(afterInto), afterInto.slice(0, 60))
+await bob.page.click('.phase-chip >> text=All')
+
 // Hide an account from the recorder on the Balance screen.
 await bob.page.click('.tab >> text="Analytics"')
 await bob.page.waitForSelector('text=Update balance', { timeout: 10000 })

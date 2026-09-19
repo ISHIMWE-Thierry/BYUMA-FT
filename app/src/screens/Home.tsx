@@ -29,6 +29,12 @@ export function Home({ app }: { app: App }) {
   // back. The eye in Profile and on Analytics still hides every total at
   // once, independently of this.
   const [shown, setShown] = useState(true)
+  // While the amount is being typed the phone's keyboard takes the bottom
+  // half of the screen, so the recorder rises to meet it: the band above
+  // the amount folds away and the accounts come up into view. It stays up
+  // for as long as an amount is there — unfolding on the tap that picks
+  // the account would move that button out from under the finger.
+  const [typing, setTyping] = useState(false)
   const hidden = useRef<HTMLInputElement>(null)
   const noteField = useRef<HTMLInputElement>(null)
   const cta = useRef<HTMLButtonElement>(null)
@@ -74,13 +80,29 @@ export function Home({ app }: { app: App }) {
   const total = sumIn(rates, items, mainCur)
   const allSum = total || 1
 
+  const into = app.intoPhase ? app.data.phases.find((p) => p.id === app.intoPhase) : null
+
   return (
     <div>
       {/* ---------------- the recorder ---------------- */}
-      <div className="recorder">
+      {into && (
+        <div className="into-bar">
+          <span className="into-text">Into {into.name}</span>
+          <button
+            type="button"
+            className="into-x"
+            aria-label="Not into the phase"
+            onClick={() => app.setIntoPhase(null)}
+          >
+            ✕
+          </button>
+        </div>
+      )}
+      <div className={typing || amt !== '' ? 'recorder recorder-typing' : 'recorder'}>
         {/* The amount used to sit at the very top, a stretch for a thumb on
             a tall phone. This empty band pushes it — and everything under
-            it — down to where the hand already is. */}
+            it — down to where the hand already is, and folds away while
+            the keyboard is up so the accounts stay in view. */}
         <div className="reach" aria-hidden="true" />
         <div className="amount-display" onClick={() => hidden.current?.focus()}>
           <span
@@ -106,6 +128,15 @@ export function Home({ app }: { app: App }) {
           enterKeyHint="done"
           value={amt}
           onChange={(e) => app.setAmt(sanitizeAmount(e.target.value))}
+          onFocus={() => {
+            setTyping(true)
+            // Scroll so the amount and the accounts sit at the top, clear
+            // of the keyboard, whichever way the phone resizes the page.
+            window.setTimeout(() => {
+              document.querySelector('.recorder')?.scrollIntoView({ block: 'start', behavior: 'smooth' })
+            }, 80)
+          }}
+          onBlur={() => setTyping(false)}
           onKeyDown={(e) => {
             if (e.key === 'Enter') e.currentTarget.blur()
           }}

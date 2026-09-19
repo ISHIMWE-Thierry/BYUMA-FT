@@ -36,8 +36,7 @@ export function Accounts({ app }: { app: App }) {
   return (
     <div className="page">
       <div className="helper" style={{ marginTop: 0 }}>
-        An account is somewhere your money sits. Every expense comes out of
-        one, and what is left in each is what adds up to your balance.
+        Where your money sits. Every expense comes out of one.
       </div>
 
       <div className="list-card mt-14">
@@ -100,10 +99,7 @@ export function Accounts({ app }: { app: App }) {
           </button>
         )
       ) : (
-        <div className="helper">
-          Byuma Pro lets you name your own — Ziraat, Albaraka, a drawer at
-          home — instead of only the three above.
-        </div>
+        <div className="helper">Pro adds your own: Ziraat, Albaraka, a drawer at home.</div>
       )}
     </div>
   )
@@ -132,10 +128,7 @@ export function AccFormBox({ app, inCard }: { app: App; inCard?: boolean }) {
         style={{ borderColor: border(app, 'accname') }}
       />
       {standard && (
-        <div className="helper">
-          The three standard accounts keep their names. Add your own to name
-          it yourself.
-        </div>
+        <div className="helper">Standard names stay. Pro renames them.</div>
       )}
 
       <div className="prio-seg">
@@ -209,9 +202,7 @@ export function Phases({ app }: { app: App }) {
   return (
     <div className="page">
       <div className="helper" style={{ marginTop: 0 }}>
-        A phase is a stretch of time with a name — where you were, what you
-        were doing. Expenses fall into one by their date, so a phase can be
-        drawn around days already lived.
+        A named stretch of time. Expenses fall in by date.
       </div>
 
       {phases.length > 0 && (
@@ -292,7 +283,7 @@ function PhaseFormBox({ app, inCard }: { app: App; inCard?: boolean }) {
           }}
         />
       </div>
-      <div className="helper">Leave Until empty while the phase is still going.</div>
+      <div className="helper">No Until yet? It is still going.</div>
 
       <FormError
         message={['phname', 'phfrom', 'phto'].includes(app.errField) ? app.formError : ''}
@@ -392,14 +383,17 @@ export function PhaseView({ app }: { app: App }) {
       )}
 
       <div className="safety-actions mt-22">
+        <button
+          type="button"
+          className="btn-set"
+          style={{ background: ACCENT }}
+          onClick={() => app.recordInto(ph)}
+        >
+          ＋ Record
+        </button>
         {running && (
-          <button
-            type="button"
-            className="btn-set"
-            style={{ background: ACCENT }}
-            onClick={() => app.endPhase(ph)}
-          >
-            End it today
+          <button type="button" className="btn-reset" onClick={() => app.endPhase(ph)}>
+            End today
           </button>
         )}
         <button type="button" className="btn-reset" onClick={() => app.openPhaseForm(ph)}>
@@ -409,7 +403,7 @@ export function PhaseView({ app }: { app: App }) {
       {app.phaseForm && app.phaseForm.id === ph.id && <PhaseFormBox app={app} />}
 
       <button type="button" className="danger-btn" onClick={() => app.askRemovePhase(ph)}>
-        Remove this phase
+        Remove
       </button>
     </div>
   )

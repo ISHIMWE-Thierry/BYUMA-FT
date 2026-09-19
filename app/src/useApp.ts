@@ -26,6 +26,7 @@ import {
   plansTake,
   safetyTake,
   totalBalance,
+  inPhase,
 } from './lib/calc'
 import { passkeyAvailable, registerPasskey, verifyPasskey } from './lib/passkey'
 import {
@@ -257,6 +258,9 @@ export function useApp() {
   const [selName, setSelName] = useState('')
   const [pickFor, setPickFor] = useState<string | null>(null)
   const [picked, setPicked] = useState<string[]>([])
+  // A phase the next recorded expense is put into, set from that phase's
+  // own page; it is dated today, so an ended phase takes it by hand.
+  const [intoPhase, setIntoPhase] = useState<string | null>(null)
 
   // locking the app with the phone
   const [canUsePhone, setCanUsePhone] = useState(false)
@@ -499,6 +503,7 @@ export function useApp() {
       setSelName('')
       setPickFor(null)
       setPicked([])
+      setIntoPhase(null)
     },
     [resetForms],
   )
@@ -758,6 +763,7 @@ export function useApp() {
       cur: recCur,
       at: Date.now(),
     }
+    const target = intoPhase ? data.phases.find((p) => p.id === intoPhase) : undefined
     setData((d) => ({
       ...d,
       items: [item, ...d.items],
@@ -766,12 +772,29 @@ export function useApp() {
       // A note typed by hand becomes a category, ready as a chip next time.
       cats: rememberCategory(d.cats, item.note),
       cleared: false,
+      // Into a phase: by hand, since today may be outside its dates.
+      phases: target
+        ? d.phases.map((p) =>
+            p.id === target.id && !inPhase(p, item.at)
+              ? { ...p, items: [...(p.items ?? []), item.id] }
+              : p,
+          )
+        : d.phases,
     }))
     setAmt('')
     setNote('')
     setAcc(null)
+    if (target) {
+      // Back to the phase it went into.
+      setIntoPhase(null)
+      setHistPhase(target.id)
+      setScreen('history')
+      setBack('home')
+      showToast('Recorded ' + fmtIn(num, recCur) + ' into ' + target.name + '.', 'ok')
+      return
+    }
     showToast('Recorded ' + fmtIn(num, recCur) + '.', 'ok')
-  }, [num, acc, note, recCur, fmtIn, showToast])
+  }, [num, acc, note, recCur, intoPhase, data.phases, fmtIn, showToast])
 
   const askDelete = useCallback(
     (item: Expense) => {
@@ -1659,6 +1682,16 @@ export function useApp() {
     if (n) showToast(n === 1 ? '1 expense added.' : n + ' expenses added.', 'ok')
   }, [pickFor, picked, showToast])
 
+  /** From a phase's page: record one, and it lands in that phase. */
+  const recordInto = useCallback(
+    (ph: Phase) => {
+      setIntoPhase(ph.id)
+      setScreen('home')
+      setBack('home')
+    },
+    [],
+  )
+
   /** Take one back out of a phase it was put into by hand. */
   const unpickFrom = useCallback((ph: Phase, id: string) => {
     setData((d) => ({
@@ -1810,6 +1843,7 @@ export function useApp() {
     selName,
     pickFor,
     picked,
+    intoPhase,
 
     // setters
     setAmt,
@@ -1829,6 +1863,7 @@ export function useApp() {
     setPhaseForm,
     setHistPhase,
     setSelName,
+    setIntoPhase,
     setExtra,
     setEAmt,
     setENote,
@@ -1871,6 +1906,7 @@ export function useApp() {
     startPick,
     savePick,
     unpickFrom,
+    recordInto,
     toggleHideAcc,
     finishTour,
     goPro,
