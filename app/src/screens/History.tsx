@@ -11,6 +11,7 @@ import {
   PlusIcon,
 } from '../components/icons'
 import { ACCENT, ChipScroller, DANGER, FormError, LINE, pick } from '../components/ui'
+import { PhaseRecordBox } from './Phases'
 
 /**
  * Everything recorded, newest first, cut into periods: a phase takes the
@@ -185,6 +186,14 @@ function PhaseCard({ app, period }: { app: App; period: Period }) {
         </span>
       </div>
       <div className="phase-card-actions">
+        <button
+          type="button"
+          className="phase-card-btn"
+          aria-pressed={app.phaseRec?.phaseId === ph.id}
+          onClick={() => app.openPhaseRec(ph)}
+        >
+          ＋ Add
+        </button>
         {!ph.to && (
           <button type="button" className="phase-card-btn" onClick={() => app.endPhase(ph)}>
             End today
@@ -199,6 +208,8 @@ function PhaseCard({ app, period }: { app: App; period: Period }) {
           <ChevronRight size={12} color="#9497a5" />
         </button>
       </div>
+      {/* The expense being added, placed on one of the phase's days. */}
+      <PhaseRecordBox app={app} phase={ph} />
     </div>
   )
 }

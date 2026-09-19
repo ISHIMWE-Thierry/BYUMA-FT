@@ -1,4 +1,14 @@
-import type { Expense, Income, Method, Phase, Plan, Prio, Safety, UserData } from '../types'
+import type {
+  Account,
+  Expense,
+  Income,
+  Method,
+  Phase,
+  Plan,
+  Prio,
+  Safety,
+  UserData,
+} from '../types'
 import { convert } from './rates'
 
 export const DAY = 864e5
@@ -142,6 +152,11 @@ export function accountBalance(
   )
 }
 
+/** What one account holds in its own currency, as of the last check-up. */
+export function heldIn(balances: Balances, acc: Account): number {
+  return balances[acc.id]?.[acc.cur] ?? 0
+}
+
 /** What every account together held at the last check-up, in one currency. */
 export function snapshotTotal(balances: Balances, code: string): number {
   return Object.values(balances).reduce((s, held) => s + (held?.[code] ?? 0), 0)
@@ -170,14 +185,22 @@ export function runningBalance(src: BalanceSource, code: string): number {
   return snapshotTotal(src.balances, code) - spent + received
 }
 
-/** Everything, everywhere, as the records have it now, expressed in `display`. */
+/**
+ * Everything, everywhere, as the records have it now, expressed in
+ * `display`. Every currency an account holds is counted, even one no
+ * longer among the chosen ones, so money is never silently left out.
+ */
 export function totalBalance(
   rates: Record<string, number>,
   src: BalanceSource,
   codes: string[],
   display: string,
 ): number {
-  return codes.reduce(
+  const all = new Set(codes)
+  for (const held of Object.values(src.balances)) {
+    for (const code of Object.keys(held ?? {})) all.add(code)
+  }
+  return [...all].reduce(
     (sum, code) => sum + convert(rates, runningBalance(src, code), code, display),
     0,
   )

@@ -1,100 +1,111 @@
 import { useState } from 'react'
 import type { App } from '../useApp'
-import type { Income, Plan, Prio } from '../types'
-import { accountBalance, dueWord, shortDate } from '../lib/calc'
+import type { Account, Income, Method, Plan, Prio } from '../types'
+import { dueWord, shortDate } from '../lib/calc'
 import { clean, groupTyped, MINUS } from '../lib/money'
-import { convert, estRate } from '../lib/rates'
-import { ChipScroller, DANGER, FormError, LINE, pick } from '../components/ui'
+import { convert } from '../lib/rates'
+import { DANGER, FormError, LINE, pick } from '../components/ui'
 import { ACCENT } from '../components/ui'
 import { CrossIcon, InfoIcon, MICON } from '../components/icons'
-import { ALL_ID, STANDARD } from '../lib/storage'
-import { AccFormBox } from './Phases'
 
 const border = (app: App, field: string) => (app.errField === field ? DANGER : LINE)
 
+const KINDS: { k: Method; label: string }[] = [
+  { k: 'bank', label: 'Bank' },
+  { k: 'cash', label: 'Cash' },
+  { k: 'momo', label: 'Phone' },
+]
+
 /**
- * The accounts, where the balance is: Cash, Ziraat, Albaraka, whatever the
- * person calls them. A tap on a name renames it, the cross removes one that
- * holds nothing, and a new one is a tap away. Shown only when the balance
- * is entered per account.
+ * The account form — a name, an icon, and the one currency it holds. Drops
+ * in under the account being changed, or under the add link. Changing one
+ * also offers to remove it.
  */
-function AccountsArea({ app }: { app: App }) {
-  const { accounts } = app
+function AccFormBox({ app, inCard, account }: { app: App; inCard?: boolean; account?: Account }) {
   const form = app.accForm
-  const missing = STANDARD.filter((s) => !accounts.some((a) => a.id === s.id))
+  if (!form) return null
 
   return (
-    <div className="acc-area">
-      <div className="section-head">
-        <span className="section-label">Accounts</span>
-        <span className="section-total">{accounts.length}</span>
-      </div>
-      <div className="list-card">
-        {accounts.map((a) => {
-          const Icon = MICON[a.kind]
+    <div className={inCard ? 'mini-form mini-form-card' : 'mini-form'}>
+      <input
+        className="field"
+        type="text"
+        placeholder="What is it? Ziraat, Albaraka…"
+        value={form.name}
+        onChange={(e) => {
+          app.setAccForm({ ...form, name: e.target.value })
+          app.clearErr()
+        }}
+        style={{ borderColor: border(app, 'accname') }}
+      />
+
+      <div className="prio-seg">
+        {KINDS.map(({ k, label }) => {
+          const Icon = MICON[k]
           return (
-            <div className="plan-item" key={a.id}>
-              <div className="acc-row">
-                <span className="acc-tile">
-                  <Icon />
-                </span>
-                <span
-                  className="plan-main"
-                  style={{ cursor: 'pointer' }}
-                  onClick={() => app.openAccForm(a)}
-                >
-                  <span className="plan-name">{a.name}</span>
-                  <span className="plan-date">tap to rename</span>
-                </span>
-                <button
-                  type="button"
-                  className="x-btn"
-                  aria-label={'Remove ' + a.name}
-                  onClick={() => app.askRemoveAcc(a)}
-                >
-                  <CrossIcon />
-                </button>
-              </div>
-              {form && form.id === a.id && <AccFormBox app={app} inCard />}
-            </div>
+            <button
+              key={k}
+              type="button"
+              className="prio-btn"
+              style={pick(form.kind === k, '#faf9fc', '#4b4f5e')}
+              onClick={() => app.setAccForm({ ...form, kind: k })}
+            >
+              <span style={{ display: 'flex' }}>
+                <Icon />
+              </span>
+              <span className="prio-btn-word">{label}</span>
+            </button>
           )
         })}
       </div>
 
-      <div className="pick-row" style={{ flexWrap: 'wrap' }}>
-        {missing.map((s) => (
-          <button
-            key={s.id}
-            type="button"
-            className="pick-chip"
-            style={pick(false, '#faf9fc', '#4b4f5e')}
-            onClick={() => app.addStandard(s.id)}
-          >
-            ＋ {s.name}
-          </button>
-        ))}
-        {!form && (
+      <CurPick curs={app.selCurs} value={form.cur} onPick={(c) => app.setAccForm({ ...form, cur: c })} />
+
+      <FormError message={app.errField === 'accname' ? app.formError : ''} />
+      <div className="form-actions">
+        <button type="button" className="editor-cancel" onClick={() => app.setAccForm(null)}>
+          Cancel
+        </button>
+        {account && (
           <button
             type="button"
-            className="pick-chip"
-            style={pick(false, '#faf9fc', '#4b4f5e')}
-            onClick={() => app.openAccForm()}
+            className="editor-cancel"
+            style={{ color: DANGER }}
+            aria-label={'Remove ' + account.name}
+            onClick={() => app.askRemoveAcc(account)}
           >
-            ＋ Add an account
+            Remove
           </button>
         )}
+        <button
+          type="button"
+          className="editor-save"
+          style={{ background: ACCENT, borderColor: LINE }}
+          onClick={app.saveAcc}
+        >
+          {form.id ? 'Save changes' : 'Add account'}
+        </button>
       </div>
-      {form && form.id === null && <AccFormBox app={app} />}
     </div>
   )
 }
 
+/**
+ * Update balance: one line per account — its icon, its name, the currency
+ * it holds, and what is in it now. "Albaraka, TL, 700." Tap a name to
+ * change or remove the account; the add link makes a new one. One Save
+ * takes the whole check-up.
+ */
 export function Balance({ app }: { app: App }) {
-  const { data, selCurs, mainCur, extra, accounts } = app
-  const others = data.allCurs.filter((c) => !selCurs.includes(c))
+  const { data, selCurs, mainCur, accounts } = app
   const rateRows = selCurs.filter((c) => c !== mainCur)
-  const byAccount = data.settings.balanceBy === 'account'
-  const rows = byAccount ? accounts : [{ id: ALL_ID, name: 'Total', kind: 'cash' as const }]
+  const form = app.accForm
+
+  // What is typed, added up in the main currency, so it answers before Save.
+  const together = accounts.reduce(
+    (s, a) => s + convert(data.rates, Number(app.fBal[a.id]) || 0, a.cur, mainCur),
+    0,
+  )
 
   return (
     <div className="page">
@@ -105,78 +116,60 @@ export function Balance({ app }: { app: App }) {
           : 'Your first check-up. From here, spending comes off it by itself.'}
       </div>
 
-      {/* Per account, or one total per currency — the person's choice. */}
-      <div className="mode-seg">
-        <button
-          type="button"
-          className="seg-btn"
-          style={pick(byAccount, '#fff', '#4b4f5e')}
-          onClick={() => app.setBalanceBy('account')}
-        >
-          By account
-        </button>
-        <button
-          type="button"
-          className="seg-btn"
-          style={pick(!byAccount, '#fff', '#4b4f5e')}
-          onClick={() => app.setBalanceBy('currency')}
-        >
-          By currency
-        </button>
-      </div>
-
-      {byAccount && <AccountsArea app={app} />}
-
-      {/* One block per row, each holding its own currencies. The figure on
-          the right follows what is typed, so it answers before Save. */}
-      {rows.map((a) => {
-        const typed = {
-          [a.id]: Object.fromEntries(
-            selCurs.map((c) => [c, Number(app.fBal[a.id + '|' + c]) || 0]),
-          ),
-        }
-        return (
-        <div className="bal-acc" key={a.id}>
-          <div className="section-head">
-            <span className="section-label">{a.name}</span>
-            <span className="section-total">
-              {app.fmtIn(
-                accountBalance(data.rates, typed, a.id, selCurs, app.activeCur),
-                app.activeCur,
-              )}
-            </span>
-          </div>
-          <div className="bal-inputs">
-            {selCurs.map((c) => {
-              const key = a.id + '|' + c
-              return (
-                <div
-                  className="money-row"
-                  key={key}
-                  style={{ borderColor: border(app, 'bal' + key) }}
+      <div className="list-card mt-14">
+        {accounts.map((a) => {
+          const Icon = MICON[a.kind]
+          return (
+            <div className="plan-item" key={a.id}>
+              <div className="bal-line">
+                <span className="acc-tile">
+                  <Icon />
+                </span>
+                <button
+                  type="button"
+                  className="bal-line-name"
+                  aria-label={'Change ' + a.name}
+                  onClick={() => app.openAccForm(a)}
                 >
-                  <span className="money-code">{c}</span>
+                  <span className="plan-name">{a.name}</span>
+                  <span className="plan-date">{a.cur} · tap to change</span>
+                </button>
+                <div className="bal-line-amt" style={{ borderColor: border(app, 'bal' + a.id) }}>
+                  <span className="bal-line-cur">{a.cur}</span>
                   <input
                     className="money-input"
                     type="text"
                     inputMode="decimal"
-                    aria-label={a.name + ' ' + c + ' total'}
+                    aria-label={a.name + ' balance'}
                     placeholder="0"
-                    value={app.fBal[key] ? groupTyped(app.fBal[key]) : ''}
+                    value={app.fBal[a.id] ? groupTyped(app.fBal[a.id]) : ''}
                     onChange={(e) => {
-                      app.setFBal({ ...app.fBal, [key]: clean(e.target.value) })
+                      app.setFBal({ ...app.fBal, [a.id]: clean(e.target.value) })
                       app.clearErr()
                     }}
                   />
                 </div>
-              )
-            })}
-          </div>
-        </div>
-        )
-      })}
+              </div>
+              {form && form.id === a.id && <AccFormBox app={app} inCard account={a} />}
+            </div>
+          )
+        })}
+      </div>
 
-      <FormError message={app.formError} />
+      {form && form.id === null ? (
+        <AccFormBox app={app} />
+      ) : (
+        <button type="button" className="extra-link mt-14" onClick={() => app.openAccForm()}>
+          ＋ Add an account
+        </button>
+      )}
+
+      <FormError message={app.errField.startsWith('bal') ? app.formError : ''} />
+
+      <div className="bal-together">
+        <span>Together</span>
+        <span>{app.fmtIn(together, mainCur)}</span>
+      </div>
 
       {rateRows.length > 0 && (
         <div className="rates-card">
@@ -195,84 +188,6 @@ export function Balance({ app }: { app: App }) {
               <span className="rate-unit">{mainCur}</span>
             </div>
           ))}
-        </div>
-      )}
-
-      {!extra ? (
-        <button type="button" className="extra-link" onClick={app.openExtra}>
-          ＋ Add from another currency
-        </button>
-      ) : (
-        <div className="extra-card">
-          <ChipScroller className="extra-chips">
-            {others.map((c) => (
-              <button
-                key={c}
-                type="button"
-                className="extra-chip"
-                style={pick(extra.cur === c, '#faf9fc', '#4b4f5e')}
-                onClick={() =>
-                  app.setExtra({
-                    cur: c,
-                    amt: extra.amt,
-                    rate: String(estRate(data.rates, c, mainCur)),
-                  })
-                }
-              >
-                {c}
-              </button>
-            ))}
-          </ChipScroller>
-
-          <div className="extra-amt">
-            <span className="extra-amt-code">{extra.cur}</span>
-            <input
-              type="text"
-              inputMode="decimal"
-              aria-label={'Amount in ' + extra.cur}
-              placeholder="0"
-              value={extra.amt ? groupTyped(extra.amt) : ''}
-              onChange={(e) => {
-                app.setExtra({ ...extra, amt: clean(e.target.value) })
-                app.clearErr()
-              }}
-            />
-          </div>
-
-          <div
-            className="extra-rate"
-            style={{ borderColor: border(app, 'exrate') }}
-          >
-            <span className="extra-rate-label">1 {extra.cur} =</span>
-            <input
-              type="text"
-              inputMode="decimal"
-              aria-label="Rate"
-              value={extra.rate}
-              onChange={(e) => {
-                app.setExtra({ ...extra, rate: clean(e.target.value) })
-                app.clearErr()
-              }}
-            />
-            <span className="extra-rate-unit">{mainCur}</span>
-          </div>
-
-          <div className="extra-foot">
-            <span className="extra-preview">
-              Adds ≈{' '}
-              {app.fmtIn(
-                (Number(extra.amt) || 0) * (Number(extra.rate) || 0),
-                mainCur,
-              )}
-            </span>
-            <button
-              type="button"
-              className="extra-remove"
-              onClick={() => app.setExtra(null)}
-            >
-              Remove
-            </button>
-          </div>
         </div>
       )}
 

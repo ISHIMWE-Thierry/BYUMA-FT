@@ -120,19 +120,16 @@ the records" is the goal. Between check-ups the balance still comes down
 by itself as you record, so it is always the app's best estimate.
 
 **Accounts** are the places the money sits — Ziraat, Albaraka, Vakıf, the
-cash in your pocket. Everyone starts with **Cash** and **Bank**; add,
-rename or remove one at the top of the Update balance screen. Accounts are
-for the check-up only, not for recording an expense. On that screen you
-choose how to answer:
-
-- **By account** — one line per account and currency: "how much is in
-  Ziraat?", "how much cash in TL?". Analytics then shows **Where the money
-  is**, account by account, as of the last check-up.
-- **By currency** — one total per currency, if you would rather not split
-  it up.
-
-Either way the one balance is everything added together, in whichever
-currency you are looking at.
+cash in your pocket. Each one holds **one currency**, so a check-up is one
+line per account: *Albaraka, TL, 700*. Everyone starts with **Cash** and
+**Bank** in their main currency; **＋ Add an account** names another and
+picks its currency, and tapping a name changes or removes it. Money in
+two currencies is two accounts — "Cash" and "Cash TL" — which is also how
+an older save is read. Accounts are for the check-up only, not for
+recording an expense. The one balance is every account added together at
+today's rates, in whichever currency you are looking at, and Analytics
+shows **Where the money is**, account by account, as of the last
+check-up.
 
 **Plans** (Analytics → Plans) is where you protect money before it is
 spent. A plan is anything you know is coming: rent, school fees, a loan
@@ -447,6 +444,13 @@ a phase by dates** takes a name and two dates; expenses fall in by their
 date, so last summer can be named today. That screen is also where a
 phase is read in full — days, average per day, how it was paid, what it
 went on — and edited, ended or removed.
+
+**Adding an expense straight into a phase.** **＋ Add** on the phase's
+card in History, or **＋ Add an expense** on its page, opens a small form:
+the amount, how you paid, what for, and **which day**. The day is the
+guide — it opens at today while the phase runs (at the last day once it
+is over) and can only be set within the phase's dates, so the expense
+lands in the phase and nowhere else.
 
 **Out of the totals, still in the graphs.** Open a phase (**Details**)
 and turn **Count in totals** off. Its expenses leave Spent this month,

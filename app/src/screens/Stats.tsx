@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import type { App } from '../useApp'
 import {
-  accountBalance,
   amountIn,
   DAY,
   sumFrom,
   dayOffset,
   dayStamp,
+  heldIn,
   monthItems,
   sumIn,
   topCategories,
@@ -68,7 +68,6 @@ export function Stats({ app }: { app: App }) {
   const cats = topCategories(rates, counted, mainCur, (i) => i.note || app.methodName(i.method))
   const catMax = cats.length ? cats[0].value : 1
 
-  const byAccount = data.settings.balanceBy === 'account' && data.balancesAt > 0
   const checkups = data.checkups.slice(0, 6)
 
   return (
@@ -118,7 +117,8 @@ export function Stats({ app }: { app: App }) {
           </div>
         )}
 
-        <div className="card-footer">
+        {/* Two rows of doors: the money and its plans, then the phases. */}
+        <div className="card-footer card-footer-top">
           <button type="button" className="card-footer-btn" onClick={() => app.goBalance('stats')}>
             Update balance
             <ChevronRight />
@@ -128,7 +128,8 @@ export function Stats({ app }: { app: App }) {
             Plans
             <ChevronRight />
           </button>
-          <span className="card-footer-divider" />
+        </div>
+        <div className="card-footer card-footer-2">
           <button type="button" className="card-footer-btn" onClick={app.goPhases}>
             Phases
             <ChevronRight />
@@ -137,20 +138,19 @@ export function Stats({ app }: { app: App }) {
       </div>
 
       {/* ---------------- where the money is ---------------- */}
-      {byAccount && (
+      {data.balancesAt > 0 && (
         <>
           <div className="section-label">Where the money is</div>
           <div className="card-list">
             {data.accounts.map((a) => {
               const Icon = MICON[a.kind]
-              const held = accountBalance(rates, data.balances, a.id, selCurs, activeCur)
               return (
                 <div className="acc-line" key={a.id}>
                   <span className="acc-tile">
                     <Icon />
                   </span>
                   <span className="acc-line-name">{a.name}</span>
-                  <span className="acc-line-sum">{m(app.fmtIn(held, activeCur))}</span>
+                  <span className="acc-line-sum">{m(app.fmtIn(heldIn(data.balances, a), a.cur))}</span>
                 </div>
               )
             })}

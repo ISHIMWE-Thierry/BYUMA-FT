@@ -95,7 +95,7 @@ describe('how an expense was paid', () => {
 
   it('and a named account is paid the way its icon says', () => {
     const d = normalise({
-      accounts: [{ id: 'z1', name: 'Ziraat', kind: 'bank' }],
+      accounts: [{ id: 'z1', name: 'Ziraat', kind: 'bank', cur: 'RWF' }],
       items: [{ id: 'a', amount: 2400, acc: 'z1', note: '', cur: 'RWF', at: 1 }],
     } as never)
     expect(d.items[0].method).toBe('bank')
@@ -107,27 +107,76 @@ describe('how an expense was paid', () => {
   })
 })
 
-describe('accounts are where the balance is', () => {
-  it('moves a balance with nowhere named onto Cash', () => {
+describe('accounts are where the balance is — one currency each', () => {
+  it('moves a balance with nowhere named onto Cash, one account per currency', () => {
     const d = normalise({
       selCurs: ['RWF', 'USD'],
       mainCur: 'RWF',
       balances: { RWF: 840_000, USD: 1_240 } as never,
     })
-    expect(d.balances.cash).toEqual({ RWF: 840_000, USD: 1_240 })
-    expect(d.accounts.map((a) => a.id)).toContain('cash')
+    expect(d.balances.cash).toEqual({ RWF: 840_000 })
+    expect(d.accounts.find((a) => a.id === 'cash')?.cur).toBe('RWF')
+    const usd = d.accounts.find((a) => a.cur === 'USD')
+    expect(usd?.name).toBe('Cash USD')
+    expect(d.balances[usd!.id]).toEqual({ USD: 1_240 })
   })
 
-  it('keeps a balance that already knows where it sits', () => {
+  it('keeps a balance that already knows where it sits, and reads the currency off it', () => {
     const d = normalise({
       balances: { cash: { RWF: 500 }, ziraat: { TL: 12_000 } },
       accounts: [
         { id: 'cash', name: 'Cash', kind: 'cash' },
         { id: 'ziraat', name: 'Ziraat', kind: 'bank' },
-      ],
+      ] as never,
     })
     expect(d.balances.ziraat).toEqual({ TL: 12_000 })
-    expect(d.accounts).toHaveLength(2)
+    expect(d.accounts.map((a) => [a.id, a.cur])).toEqual([
+      ['cash', 'RWF'],
+      ['ziraat', 'TL'],
+    ])
+  })
+
+  it('keeps the currency an account was saved with, even while it holds nothing', () => {
+    const d = normalise({
+      accounts: [{ id: 'alb', name: 'Albaraka', kind: 'bank', cur: 'TL' }],
+    })
+    expect(d.accounts[0].cur).toBe('TL')
+    expect(d.balances.alb).toEqual({ TL: 0 })
+  })
+
+  it('splits an account holding several currencies, losing nothing', () => {
+    const d = normalise({
+      selCurs: ['RWF', 'TL', 'USD'],
+      mainCur: 'RWF',
+      accounts: [{ id: 'cash', name: 'Cash', kind: 'cash' }] as never,
+      balances: { cash: { RWF: 840_000, TL: 9_600, USD: 1_240 } },
+    })
+    expect(d.accounts.map((a) => [a.name, a.cur])).toEqual([
+      ['Cash', 'RWF'],
+      ['Cash TL', 'TL'],
+      ['Cash USD', 'USD'],
+    ])
+    const total = Object.values(d.balances).flatMap((h) => Object.entries(h))
+    expect(total).toEqual([
+      ['RWF', 840_000],
+      ['TL', 9_600],
+      ['USD', 1_240],
+    ])
+  })
+
+  it('turns the pot a per-currency save wrote into accounts called Total', () => {
+    const d = normalise({
+      selCurs: ['RWF', 'TL'],
+      mainCur: 'RWF',
+      accounts: [{ id: 'cash', name: 'Cash', kind: 'cash' }] as never,
+      balances: { cash: {}, all: { RWF: 800_000, TL: 300 } },
+    })
+    expect(d.accounts.map((a) => [a.name, a.cur])).toEqual([
+      ['Cash', 'RWF'],
+      ['Total', 'RWF'],
+      ['Total TL', 'TL'],
+    ])
+    expect(d.balances.all).toEqual({ RWF: 800_000 })
   })
 
   it('keeps money whose account is gone, under a stand-in', () => {
@@ -136,8 +185,13 @@ describe('accounts are where the balance is', () => {
     expect(d.balances.gone.RWF).toBe(900)
   })
 
-  it('gives a new person Cash and Bank', () => {
-    expect(normalise(null).accounts.map((a) => a.id)).toEqual(['cash', 'bank'])
+  it('gives a new person Cash and Bank, in their main currency', () => {
+    expect(normalise(null).accounts.map((a) => [a.id, a.cur])).toEqual([
+      ['cash', 'RWF'],
+      ['bank', 'RWF'],
+    ])
+    const tl = normalise({ selCurs: ['TL', 'RWF'], mainCur: 'TL' })
+    expect(tl.accounts.map((a) => a.cur)).toEqual(['TL', 'TL'])
   })
 
   it('reads a save from before check-ups as standing now, so old expenses do not come off twice', () => {
@@ -147,13 +201,11 @@ describe('accounts are where the balance is', () => {
     expect(kept.balancesAt).toBe(42)
   })
 
-  it('keeps the check-ups and how the balance is entered', () => {
+  it('keeps the check-ups', () => {
     const d = normalise({
       checkups: [{ id: 'c', at: 5, diff: { RWF: -10 }, total: { RWF: 490 } }],
-      settings: { balanceBy: 'currency' },
     } as never)
     expect(d.checkups).toEqual([{ id: 'c', at: 5, diff: { RWF: -10 }, total: { RWF: 490 } }])
-    expect(d.settings.balanceBy).toBe('currency')
   })
 })
 

@@ -24,6 +24,7 @@ import {
   p1Shortfall,
   plansTake,
   safetyTake,
+  shortDate,
   totalBalance,
 } from './lib/calc'
 import { passkeyAvailable, registerPasskey, verifyPasskey } from './lib/passkey'
@@ -31,10 +32,8 @@ import {
   clearLegacyFor,
   clearPasskeyId,
   freshData,
-  ALL_ID,
   METHODS,
   METHOD_NAME,
-  STANDARD,
   loadPasskeyId,
   newId,
   rememberCategory,
@@ -153,12 +152,17 @@ function userFrom(user: FbUser): User {
   }
 }
 
-export interface ExtraState {
-  cur: string
+/**
+ * An expense being added straight into a phase, on a day of that phase.
+ * The day is the guide: it starts inside the phase and is held there.
+ */
+export interface PhaseRec {
+  phaseId: string
   amt: string
-  rate: string
-  /** Which account the converted money lands in. */
-  into?: string
+  method: Method | null
+  note: string
+  /** yyyy-mm-dd, between the phase's first day and its last (or today). */
+  day: string
 }
 
 /** A plan or income being typed. id is null while it is a new one. */
@@ -184,6 +188,7 @@ export interface AccForm {
   id: string | null
   name: string
   kind: Method
+  cur: string
 }
 
 export interface PhaseForm {
@@ -230,12 +235,11 @@ export function useApp() {
 
   // money screens
   const [balCur, setBalCur] = useState('RWF')
-  // Keyed "accountId|currency", because a balance now lives in a place.
+  // Keyed by account id: each account holds one currency, so one field.
   const [fBal, setFBal] = useState<Record<string, string>>({})
   const [planForm, setPlanForm] = useState<PlanForm | null>(null)
   const [incomeForm, setIncomeForm] = useState<IncomeForm | null>(null)
   const [fSafety, setFSafety] = useState('')
-  const [extra, setExtra] = useState<ExtraState | null>(null)
   const [rateEdit, setRateEdit] = useState<{ code: string; value: string } | null>(null)
 
   // inline editor
@@ -252,6 +256,8 @@ export function useApp() {
   const [accForm, setAccForm] = useState<AccForm | null>(null)
   const [phaseForm, setPhaseForm] = useState<PhaseForm | null>(null)
   const [viewPhase, setViewPhase] = useState<string | null>(null)
+  // The expense being added into a phase, under that phase's card.
+  const [phaseRec, setPhaseRec] = useState<PhaseRec | null>(null)
 
   // History: the period being read (a phase or a month), and the name of
   // a phase about to be started — null while that little form is closed.
@@ -844,61 +850,23 @@ export function useApp() {
 
   /* ---------------- balance ---------------- */
 
-  // The rows the Balance screen shows: one per account, or one per
-  // currency when the person would rather not split it up. Either way the
-  // keys are "account|currency", with the whole-total rows under ALL_ID.
-  const balanceRows = useCallback(
-    (d: UserData) =>
-      d.settings.balanceBy === 'currency'
-        ? [{ id: ALL_ID, name: 'Total', kind: 'cash' as Method }]
-        : d.accounts,
-    [],
-  )
-
   // `from` is where the back chevron returns to. Analytics is the usual way
   // in, but the empty home screen also offers it to a person who has not set
-  // a balance yet.
+  // a balance yet. One field per account, starting at what it held.
   const goBalance = useCallback(
     (from: Screen = 'stats') => {
       const next: Record<string, string> = {}
-      for (const a of balanceRows(data)) {
-        for (const c of selCurs) {
-          // Entered per currency, the field starts at what every account
-          // together held, so switching the way in loses nothing.
-          const held =
-            a.id === ALL_ID
-              ? Object.values(data.balances).reduce((sum, h) => sum + (h?.[c] ?? 0), 0)
-              : data.balances[a.id]?.[c]
-          next[a.id + '|' + c] = held ? String(held) : ''
-        }
+      for (const a of accounts) {
+        const held = data.balances[a.id]?.[a.cur]
+        next[a.id] = held ? String(held) : ''
       }
       setFBal(next)
-      setExtra(null)
+      setAccForm(null)
       clearErr()
       setScreen('balance')
       setBack(from)
     },
-    [selCurs, data, balanceRows, clearErr],
-  )
-
-  /** By account or by currency — and the fields follow. */
-  const setBalanceBy = useCallback(
-    (by: 'account' | 'currency') => {
-      const d: UserData = { ...data, settings: { ...data.settings, balanceBy: by } }
-      setData(d)
-      const next: Record<string, string> = {}
-      for (const a of balanceRows(d)) {
-        for (const c of selCurs) {
-          const held =
-            a.id === ALL_ID
-              ? Object.values(d.balances).reduce((sum, h) => sum + (h?.[c] ?? 0), 0)
-              : d.balances[a.id]?.[c]
-          next[a.id + '|' + c] = held ? String(held) : ''
-        }
-      }
-      setFBal(next)
-    },
-    [data, selCurs, balanceRows],
+    [accounts, data.balances, clearErr],
   )
 
   /* ---------------- plans, safety net, expected income ---------------- */
@@ -1095,40 +1063,22 @@ export function useApp() {
    * unrecorded, minus is spending that never got recorded.
    */
   const saveBalance = useCallback(() => {
-    const rows = balanceRows(data)
     const vals: Record<string, Record<string, number>> = {}
     let anything = 0
-    for (const a of rows) {
-      const held: Record<string, number> = {}
-      for (const c of selCurs) {
-        const key = a.id + '|' + c
-        const raw = (fBal[key] ?? '').trim()
-        if (raw && isNaN(Number(raw))) return fail('bal' + key, 'That is not a number.')
-        held[c] = Number(raw) || 0
-        anything += held[c]
-      }
-      vals[a.id] = held
+    for (const a of accounts) {
+      const raw = (fBal[a.id] ?? '').trim()
+      if (raw && isNaN(Number(raw))) return fail('bal' + a.id, 'That is not a number.')
+      const n = Number(raw) || 0
+      vals[a.id] = { [a.cur]: n }
+      anything += n
     }
-    let added = 0
-    if (extra && extra.amt) {
-      const a = Number(extra.amt) || 0
-      const r = Number(extra.rate) || 0
-      if (a > 0 && r <= 0) return fail('exrate', 'Set a rate first.')
-      added = a * r
-    }
-    if (anything <= 0 && added <= 0) {
-      return fail('bal' + rows[0].id + '|' + selCurs[0], 'Enter at least one total.')
-    }
-    // Money brought in from another currency lands in the first row, which
-    // is where the person is standing when they add it.
-    if (added > 0) {
-      const into = extra?.into && vals[extra.into] ? extra.into : rows[0].id
-      vals[into] = { ...vals[into], [mainCur]: (vals[into]?.[mainCur] ?? 0) + added }
-    }
+    if (anything <= 0) return fail('bal' + accounts[0].id, 'Enter at least one total.')
 
-    const { diff, total } = checkupDiff(data, vals, selCurs)
+    // Every currency any account holds, so nothing is left out of the sum.
+    const codes = [...new Set([...selCurs, ...accounts.map((a) => a.cur)])]
+    const { diff, total } = checkupDiff(data, vals, codes)
     const now = Date.now()
-    const moved = selCurs.filter((c) => Math.round(diff[c]) !== 0)
+    const moved = codes.filter((c) => Math.round(diff[c]) !== 0)
     const first = data.balancesAt === 0
 
     freeze('Saving balance', FREEZE.saveBalance, () => {
@@ -1139,7 +1089,6 @@ export function useApp() {
         // The first check-up has nothing to compare against.
         checkups: first ? d.checkups : [{ id: newId(), at: now, diff, total }, ...d.checkups],
       }))
-      setExtra(null)
       setScreen('stats')
       showToast(
         first || !moved.length
@@ -1152,7 +1101,7 @@ export function useApp() {
         first || !moved.length ? 'ok' : 'warn',
       )
     })
-  }, [data, balanceRows, selCurs, fBal, extra, mainCur, fail, freeze, showToast, fmtIn])
+  }, [data, accounts, selCurs, fBal, fail, freeze, showToast, fmtIn])
 
   /* ---------------- rates ---------------- */
 
@@ -1183,13 +1132,6 @@ export function useApp() {
 
   /* ---------------- currencies ---------------- */
 
-  const openExtra = useCallback(() => {
-    const other = data.allCurs.find((c) => !selCurs.includes(c))
-    if (!other) return showToast('Add a currency in your profile first.')
-    setExtra({ cur: other, amt: '', rate: String(estRate(data.rates, other, mainCur)) })
-    clearErr()
-  }, [data.allCurs, data.rates, selCurs, mainCur, showToast, clearErr])
-
   const addCur = useCallback(() => {
     const n = newCur.trim()
     if (n.length < 2) return fail('cur', 'Use 2 to 4 letters.')
@@ -1205,6 +1147,9 @@ export function useApp() {
       const on = selCurs.includes(code)
       if (on) {
         if (selCurs.length <= 1) return showToast('Keep at least one currency.')
+        // An account is in one currency; unpicking it would orphan the account.
+        const holder = accounts.find((a) => a.cur === code)
+        if (holder) return showToast(holder.name + ' is in ' + code + '. Change that account first.')
         const next = selCurs.filter((x) => x !== code)
         setData((d) => ({
           ...d,
@@ -1212,7 +1157,6 @@ export function useApp() {
           mainCur: code === d.mainCur ? next[0] : d.mainCur,
         }))
         setBalCur((b) => (next.includes(b) ? b : next[0]))
-        setExtra(null)
       } else {
         if (selCurs.length >= 3) return showToast('Three at a time. Unpick one first.')
         setData((d) => ({
@@ -1220,7 +1164,6 @@ export function useApp() {
           selCurs: [...selCurs, code],
           balances: { ...d.balances, [code]: d.balances[code] ?? 0 },
         }))
-        setExtra(null)
       }
     },
     [selCurs, showToast],
@@ -1422,18 +1365,18 @@ export function useApp() {
 
   /* ---------------- accounts ---------------- */
 
-  /** Open the form empty for a new account, or filled to rename one. */
+  /** Open the form empty for a new account, or filled to change one. */
   const openAccForm = useCallback(
     (a?: Account) => {
       setAccForm((cur) => {
         if (a && cur && cur.id === a.id) return null
         return a
-          ? { id: a.id, name: a.name, kind: a.kind }
-          : { id: null, name: '', kind: 'bank' as Method }
+          ? { id: a.id, name: a.name, kind: a.kind, cur: a.cur }
+          : { id: null, name: '', kind: 'bank' as Method, cur: mainCur }
       })
       clearErr()
     },
-    [clearErr],
+    [mainCur, clearErr],
   )
 
   const saveAcc = useCallback(() => {
@@ -1445,31 +1388,32 @@ export function useApp() {
       (a) => a.id !== accForm.id && a.name.toLowerCase() === name.toLowerCase(),
     )
     if (clash) return fail('accname', 'You already have one with that name.')
+    const cur = selCurs.includes(accForm.cur) ? accForm.cur : mainCur
 
-    setData((d) => ({
-      ...d,
-      accounts: accForm.id
-        ? d.accounts.map((a) => (a.id === accForm.id ? { ...a, name, kind: accForm.kind } : a))
-        : [...d.accounts, { id: newId(), name, kind: accForm.kind }],
-    }))
+    setData((d) => {
+      if (!accForm.id) {
+        const id = newId()
+        return {
+          ...d,
+          accounts: [...d.accounts, { id, name, kind: accForm.kind, cur }],
+          balances: { ...d.balances, [id]: { [cur]: 0 } },
+        }
+      }
+      // A changed currency keeps the number: the money was always in that
+      // currency, it was only labelled wrong.
+      const was = d.accounts.find((a) => a.id === accForm.id)
+      const amount = was ? (d.balances[was.id]?.[was.cur] ?? 0) : 0
+      return {
+        ...d,
+        accounts: d.accounts.map((a) =>
+          a.id === accForm.id ? { ...a, name, kind: accForm.kind, cur } : a,
+        ),
+        balances: { ...d.balances, [accForm.id]: { [cur]: amount } },
+      }
+    })
     setAccForm(null)
     showToast(accForm.id ? 'Account updated.' : name + ' added.', 'ok')
-  }, [accForm, data.accounts, fail, showToast])
-
-  /** One of the three standard accounts, put back on the list. */
-  const addStandard = useCallback(
-    (id: string) => {
-      const std = STANDARD.find((a) => a.id === id)
-      if (!std) return
-      setData((d) =>
-        d.accounts.some((a) => a.id === id)
-          ? d
-          : { ...d, accounts: [...d.accounts, { ...std }] },
-      )
-      showToast(std.name + ' added.', 'ok')
-    },
-    [showToast],
-  )
+  }, [accForm, data.accounts, selCurs, mainCur, fail, showToast])
 
   /**
    * Removing an account is refused while money still sits in it — dropping
@@ -1621,6 +1565,76 @@ export function useApp() {
     [showToast],
   )
 
+  /* ---------------- recording into a phase ---------------- */
+
+  /**
+   * Open the little form under a phase, or close it. The day starts at
+   * today while the phase runs, else at its last day, and is held inside
+   * the phase's dates — that is what places the expense where it belongs.
+   */
+  const openPhaseRec = useCallback(
+    (ph: Phase) => {
+      setPhaseRec((cur) => {
+        if (cur && cur.phaseId === ph.id) return null
+        const t = today()
+        const over = !!ph.to && ph.to < t
+        const day = over ? ph.to : ph.from > t ? ph.from : t
+        return { phaseId: ph.id, amt: '', method: null, note: '', day }
+      })
+      clearErr()
+    },
+    [clearErr],
+  )
+
+  const savePhaseRec = useCallback(() => {
+    if (!phaseRec) return
+    const ph = data.phases.find((p) => p.id === phaseRec.phaseId)
+    if (!ph) return setPhaseRec(null)
+    const v = toNumber(phaseRec.amt)
+    if (v <= 0) return fail('pramt', 'Give it an amount.')
+    if (!phaseRec.method) return fail('prmethod', 'Pick how you paid.')
+    const t = today()
+    const last = ph.to && ph.to < t ? ph.to : t
+    if (!phaseRec.day || phaseRec.day < ph.from || phaseRec.day > last) {
+      return fail(
+        'prday',
+        'Pick a day inside ' +
+          ph.name +
+          ': ' +
+          shortDate(ph.from) +
+          ' to ' +
+          (last === t ? 'today' : shortDate(last)) +
+          '.',
+      )
+    }
+    const item: Expense = {
+      id: newId(),
+      amount: v,
+      method: phaseRec.method,
+      note: phaseRec.note.trim(),
+      cur: mainCur,
+      at: atOn(phaseRec.day),
+    }
+    setData((d) => ({
+      ...d,
+      items: [item, ...d.items],
+      cats: rememberCategory(d.cats, item.note),
+      cleared: false,
+    }))
+    setPhaseRec(null)
+    clearErr()
+    showToast(
+      'Recorded ' +
+        fmt(v) +
+        ' into ' +
+        ph.name +
+        ', ' +
+        (phaseRec.day === t ? 'today' : shortDate(phaseRec.day)) +
+        '.',
+      'ok',
+    )
+  }, [phaseRec, data.phases, mainCur, fail, clearErr, fmt, showToast])
+
   /* ---------------- reminders ---------------- */
 
   /**
@@ -1762,7 +1776,6 @@ export function useApp() {
     planForm,
     incomeForm,
     fSafety,
-    extra,
     editId,
     eAmt,
     eNote,
@@ -1782,6 +1795,7 @@ export function useApp() {
     accForm,
     phaseForm,
     viewPhase,
+    phaseRec,
     histPeriod,
     newPhase,
 
@@ -1802,9 +1816,9 @@ export function useApp() {
     setIncomeForm,
     setAccForm,
     setPhaseForm,
+    setPhaseRec,
     setHistPeriod,
     setNewPhase,
-    setExtra,
     setEAmt,
     setENote,
     setEDetail,
@@ -1830,7 +1844,6 @@ export function useApp() {
     goPlans,
     openAccForm,
     saveAcc,
-    addStandard,
     askRemoveAcc,
     goPhases,
     openPhase,
@@ -1840,9 +1853,10 @@ export function useApp() {
     askRemovePhase,
     startPhase,
     togglePhaseBooks,
+    openPhaseRec,
+    savePhaseRec,
     toggleMethod,
     toggleRemind,
-    setBalanceBy,
     receiveIncome,
     finishTour,
     openPlanForm,
@@ -1872,7 +1886,6 @@ export function useApp() {
     askClear,
     askDeleteAccount,
     saveBalance,
-    openExtra,
     addCur,
     toggleCur,
     removeCur,
