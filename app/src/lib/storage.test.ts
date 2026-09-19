@@ -166,3 +166,16 @@ describe('what arrives with the History phases', () => {
     expect(empty.settings.seenTour).toBe(false)
   })
 })
+
+describe('an account that spends in its own currency', () => {
+  it('keeps the currency it was given, and none when it has the main one', () => {
+    const d = normalise({
+      accounts: [
+        { id: 'cash', name: 'Cash TL', kind: 'cash' },
+        { id: 'usd', name: 'Cash USD', kind: 'cash', custom: true, cur: 'USD' },
+      ],
+    })
+    expect(d.accounts.find((a) => a.id === 'usd')?.cur).toBe('USD')
+    expect(d.accounts.find((a) => a.id === 'cash')?.cur).toBeUndefined()
+  })
+})

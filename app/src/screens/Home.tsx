@@ -38,7 +38,11 @@ export function Home({ app }: { app: App }) {
 
   const ready = num > 0 && !!app.acc
   const ctaLabel =
-    num <= 0 ? 'Record expense' : !app.acc ? 'Pick an account' : 'Record ' + app.fmt(num)
+    num <= 0
+      ? 'Record expense'
+      : !app.acc
+        ? 'Pick an account'
+        : 'Record ' + app.fmtIn(num, app.recCur)
 
   // A balance of zero everywhere means the person has not told the app what
   // they have yet.
@@ -83,7 +87,7 @@ export function Home({ app }: { app: App }) {
             className="amount-code"
             style={{ color: amt === '' ? '#83869a' : '#4b4f5e' }}
           >
-            {mainCur}
+            {app.recCur}
           </span>
           <span
             className="amount-figure"

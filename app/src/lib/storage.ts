@@ -167,6 +167,7 @@ function asAccounts(v: unknown): Account[] {
       kind: KINDS.includes(a.kind) ? a.kind : 'cash',
       ...(a.custom ? { custom: true } : {}),
       ...(a.hidden ? { hidden: true } : {}),
+      ...(typeof a.cur === 'string' && a.cur ? { cur: a.cur } : {}),
     }))
 }
 

@@ -181,6 +181,8 @@ export interface AccForm {
   id: string | null
   name: string
   kind: Method
+  /** '' means the main currency. */
+  cur: string
 }
 
 export interface PhaseForm {
@@ -278,6 +280,8 @@ export function useApp() {
   const accounts = data.accounts.length ? data.accounts : freshData().accounts
   /** The ones offered when recording — an account can be kept off that row. */
   const shownAccounts = accounts.filter((a) => !a.hidden)
+  /** What the recorder is counting in: the chosen account's own currency, or the main one. */
+  const recCur = (acc && accounts.find((a) => a.id === acc)?.cur) || mainCur
 
   /** The name to show for an account id, even one since removed. */
   const accName = useCallback(
@@ -750,7 +754,8 @@ export function useApp() {
       amount: num,
       acc,
       note: note.trim(),
-      cur: mainCur,
+      // Spent in the account's own currency: dollars out of "Cash USD".
+      cur: recCur,
       at: Date.now(),
     }
     setData((d) => ({
@@ -765,8 +770,8 @@ export function useApp() {
     setAmt('')
     setNote('')
     setAcc(null)
-    showToast('Recorded ' + fmt(num) + '.', 'ok')
-  }, [num, acc, note, mainCur, fmt, showToast])
+    showToast('Recorded ' + fmtIn(num, recCur) + '.', 'ok')
+  }, [num, acc, note, recCur, fmtIn, showToast])
 
   const askDelete = useCallback(
     (item: Expense) => {
@@ -1372,8 +1377,8 @@ export function useApp() {
       setAccForm((cur) => {
         if (a && cur && cur.id === a.id) return null
         return a
-          ? { id: a.id, name: a.name, kind: a.kind }
-          : { id: null, name: '', kind: 'bank' as Method }
+          ? { id: a.id, name: a.name, kind: a.kind, cur: a.cur ?? '' }
+          : { id: null, name: '', kind: 'bank' as Method, cur: '' }
       })
       clearErr()
     },
@@ -1392,11 +1397,24 @@ export function useApp() {
 
     setData((d) => ({
       ...d,
+      // Never leave a key holding undefined: Firestore refuses the whole
+      // document, and the save fails without a word.
       accounts: accForm.id
-        ? d.accounts.map((a) =>
-            a.id === accForm.id ? { ...a, name, kind: accForm.kind } : a,
-          )
-        : [...d.accounts, { id: newId(), name, kind: accForm.kind, custom: true }],
+        ? d.accounts.map((a) => {
+            if (a.id !== accForm.id) return a
+            const { cur: _dropped, ...rest } = a
+            return { ...rest, name, kind: accForm.kind, ...(accForm.cur ? { cur: accForm.cur } : {}) }
+          })
+        : [
+            ...d.accounts,
+            {
+              id: newId(),
+              name,
+              kind: accForm.kind,
+              custom: true,
+              ...(accForm.cur ? { cur: accForm.cur } : {}),
+            },
+          ],
     }))
     setAccForm(null)
     showToast(accForm.id ? 'Account updated.' : name + ' added.', 'ok')
@@ -1660,9 +1678,11 @@ export function useApp() {
       if (hiding && shownAccounts.length <= 1) return showToast('Keep one to record from.')
       setData((d) => ({
         ...d,
-        accounts: d.accounts.map((x) =>
-          x.id === a.id ? (hiding ? { ...x, hidden: true } : { ...x, hidden: undefined }) : x,
-        ),
+        accounts: d.accounts.map((x) => {
+          if (x.id !== a.id) return x
+          const { hidden: _dropped, ...rest } = x
+          return hiding ? { ...rest, hidden: true } : rest
+        }),
       }))
       if (hiding && acc === a.id) setAcc(null)
       showToast(hiding ? a.name + ' hidden from recording.' : a.name + ' is back.', 'ok')
@@ -1780,6 +1800,7 @@ export function useApp() {
     pro,
     accounts,
     shownAccounts,
+    recCur,
     accForm,
     phaseForm,
     viewPhase,

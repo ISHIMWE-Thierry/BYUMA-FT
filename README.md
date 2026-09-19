@@ -400,7 +400,9 @@ Nothing about the app changes for anyone who leaves it off.
 Albaraka, a drawer at home — and give each one a bank, cash or phone icon.
 With Pro, Cash and Bank can be renamed too: tap a name on the Balance
 screen. Whatever you call an account is what the recorder shows as the
-way you paid.
+way you paid. An account can also have a currency of its own — a "Cash
+USD" spends dollars, so the recorder counts in USD the moment you pick
+it, and the balance comes off in USD.
 
 **Phases.** A phase is a stretch of time with a name: your months in
 Rwanda, then being back in Türkiye. Expenses fall into a phase by their

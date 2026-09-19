@@ -158,6 +158,27 @@ export function AccFormBox({ app, inCard }: { app: App; inCard?: boolean }) {
         })}
       </div>
 
+      {/* What it spends in. Most accounts hold the main currency; a
+          "Cash USD" holds dollars, and records them. */}
+      {app.selCurs.length > 1 && (
+        <div className="pick-row" style={{ flexWrap: 'wrap' }}>
+          {app.selCurs.map((c) => {
+            const on = (form.cur || app.mainCur) === c
+            return (
+              <button
+                key={c}
+                type="button"
+                className="pick-chip"
+                style={pick(on, '#faf9fc', '#4b4f5e')}
+                onClick={() => app.setAccForm({ ...form, cur: c === app.mainCur ? '' : c })}
+              >
+                {c}
+              </button>
+            )
+          })}
+        </div>
+      )}
+
       <FormError message={app.errField === 'accname' ? app.formError : ''} />
       <div className="form-actions">
         <button type="button" className="editor-cancel" onClick={() => app.setAccForm(null)}>

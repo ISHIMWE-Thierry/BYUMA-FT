@@ -16,6 +16,8 @@ export interface Account {
   custom?: boolean
   /** Kept off the recorder's row of accounts. History and balances still know it. */
   hidden?: boolean
+  /** The currency this account records in — "Cash USD" spends dollars. Unset means the main one. */
+  cur?: string
 }
 
 /**
