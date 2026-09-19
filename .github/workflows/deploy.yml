@@ -86,7 +86,10 @@ jobs:
       - name: Build
         run: npm run build
         env:
-          BASE_PATH: /Byuma-FT-Lite/
+          # GitHub Pages serves a project site under the repository's name,
+          # whatever that is — so a copy of this repository under another
+          # name still gets its paths right.
+          BASE_PATH: /${{ github.event.repository.name }}/
           VITE_FB_API_KEY: ${{ steps.fb.outputs.api_key }}
           VITE_FB_AUTH_DOMAIN: ${{ steps.fb.outputs.auth_domain }}
           VITE_FB_PROJECT_ID: ${{ steps.fb.outputs.project_id }}
@@ -95,6 +98,10 @@ jobs:
           VITE_FB_APP_ID: ${{ steps.fb.outputs.app_id }}
       - uses: actions/configure-pages@v5
         if: github.ref == 'refs/heads/main'
+        with:
+          # Turns Pages on for a repository that has never had it, so a
+          # fresh copy publishes on its first push instead of failing here.
+          enablement: true
       - uses: actions/upload-pages-artifact@v3
         if: github.ref == 'refs/heads/main'
         with:
