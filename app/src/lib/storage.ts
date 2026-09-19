@@ -1,4 +1,16 @@
-import type { Account, Expense, Income, Method, Phase, Plan, Prio, Safety, Settings, UserData } from '../types'
+import type {
+  Account,
+  Checkup,
+  Expense,
+  Income,
+  Method,
+  Phase,
+  Plan,
+  Prio,
+  Safety,
+  Settings,
+  UserData,
+} from '../types'
 import { BASE_CURS, BASE_RATES, convert } from './rates'
 
 /** An account as the phone-only versions wrote it, password hash and all. */
@@ -70,22 +82,22 @@ export function rememberCategory(cats: string[], note: string): string[] {
   return [...cats, name]
 }
 
+/** The three ways of paying, in the order the recorder shows them. */
+export const METHODS: Method[] = ['cash', 'bank', 'momo']
+export const METHOD_NAME: Record<Method, string> = { cash: 'Cash', bank: 'Bank', momo: 'MoMo' }
+
 /**
- * The accounts everyone starts with. Cash and Bank are the two a person
- * always has; MoMo is the same kind of thing but not everybody uses one, so
- * it is offered rather than assumed. None of the three can be renamed —
- * naming your own is what Pro is for.
+ * The accounts everyone starts with, for the balance: cash in hand and one
+ * bank. Naming more — Ziraat, Albaraka, a drawer at home — is a tap on the
+ * Balance screen.
  */
 export const STANDARD: Account[] = [
   { id: 'cash', name: 'Cash', kind: 'cash' },
   { id: 'bank', name: 'Bank', kind: 'bank' },
-  { id: 'momo', name: 'MoMo', kind: 'momo' },
 ]
 
-/** The two that are there from the start; MoMo is added if it is wanted. */
-const STARTING = ['cash', 'bank']
-
-export const isStandard = (id: string) => STANDARD.some((a) => a.id === id)
+/** The one account that holds the totals when the balance is entered per currency. */
+export const ALL_ID = 'all'
 
 /** A brand new account: no expenses, and a zero balance everywhere. */
 export function freshData(): UserData {
@@ -97,21 +109,24 @@ export function freshData(): UserData {
     rates: { ...BASE_RATES },
     manualRates: [],
     ratesFetchedAt: null,
-    accounts: STANDARD.filter((a) => STARTING.includes(a.id)).map((a) => ({ ...a })),
+    accounts: STANDARD.map((a) => ({ ...a })),
     phases: [],
     // "a zero balance in every currency", exactly as the design starts.
     balances: { cash: { RWF: 0, TL: 0, USD: 0 }, bank: {} },
+    balancesAt: 0,
+    checkups: [],
     plans: [],
     incomes: [],
     safety: { amt: 0, cur: 'RWF' },
     settings: {
       round: false,
-      reminder: true,
       hideBal: false,
       hideMonth: false,
       hideSpent: false,
-      pro: false,
       seenTour: false,
+      hiddenMethods: [],
+      balanceBy: 'account',
+      remind: true,
     },
     items: [],
     cleared: false,
@@ -151,12 +166,15 @@ function asIncomes(v: unknown): Income[] {
       cur: typeof i.cur === 'string' ? i.cur : 'RWF',
       date: typeof i.date === 'string' ? i.date : '',
       counted: !!i.counted,
+      ...(typeof i.receivedAt === 'number' ? { receivedAt: i.receivedAt } : {}),
     }))
     .filter((i) => i.amt > 0)
 }
 
 const KINDS: Method[] = ['cash', 'momo', 'bank']
+const isMethod = (v: unknown): v is Method => KINDS.includes(v as Method)
 
+/** Accounts as saved by any version: only the name and the icon matter now. */
 function asAccounts(v: unknown): Account[] {
   if (!Array.isArray(v)) return []
   return v
@@ -164,10 +182,7 @@ function asAccounts(v: unknown): Account[] {
     .map((a) => ({
       id: typeof a.id === 'string' && a.id ? a.id : newId(),
       name: typeof a.name === 'string' && a.name.trim() ? a.name.trim() : 'Account',
-      kind: KINDS.includes(a.kind) ? a.kind : 'cash',
-      ...(a.custom ? { custom: true } : {}),
-      ...(a.hidden ? { hidden: true } : {}),
-      ...(typeof a.cur === 'string' && a.cur ? { cur: a.cur } : {}),
+      kind: isMethod(a.kind) ? a.kind : 'cash',
     }))
 }
 
@@ -180,36 +195,56 @@ function asPhases(v: unknown): Phase[] {
       name: typeof p.name === 'string' ? p.name : '',
       from: typeof p.from === 'string' ? p.from : '',
       to: typeof p.to === 'string' ? p.to : '',
-      ...(Array.isArray(p.items) && p.items.length
-        ? { items: p.items.filter((id): id is string => typeof id === 'string') }
-        : {}),
+      ...(p.offBooks ? { offBooks: true } : {}),
     }))
     .filter((p) => p.name && p.from)
 }
 
-/** The shape expenses and balances had before accounts existed. */
-type LegacyExpense = Partial<Expense> & { method?: Method }
-
-function asItems(v: unknown): Expense[] {
+function asCheckups(v: unknown): Checkup[] {
   if (!Array.isArray(v)) return []
-  return (v as LegacyExpense[])
-    .filter((i) => !!i && typeof i === 'object')
-    .map((i) => ({
-      id: typeof i.id === 'string' ? i.id : newId(),
-      amount: typeof i.amount === 'number' ? i.amount : 0,
-      // Before accounts, an expense carried the shape it was paid in, and
-      // those three shapes are exactly the three standard accounts — so the
-      // old value already names the account it came from.
-      acc: typeof i.acc === 'string' && i.acc ? i.acc : (i.method ?? 'cash'),
-      note: typeof i.note === 'string' ? i.note : '',
-      ...(typeof i.detail === 'string' && i.detail ? { detail: i.detail } : {}),
-      cur: typeof i.cur === 'string' ? i.cur : 'RWF',
-      at: typeof i.at === 'number' ? i.at : Date.now(),
+  return v
+    .filter((c): c is Checkup => !!c && typeof c === 'object' && typeof c.at === 'number')
+    .map((c) => ({
+      id: typeof c.id === 'string' && c.id ? c.id : newId(),
+      at: c.at,
+      diff: c.diff && typeof c.diff === 'object' ? { ...c.diff } : {},
+      total: c.total && typeof c.total === 'object' ? { ...c.total } : {},
     }))
 }
 
+/**
+ * An expense as any version saved it. The first versions stamped how it
+ * was paid; the version with accounts stamped which account it came out
+ * of; both are read back as the way of paying.
+ */
+type LegacyExpense = Partial<Expense> & { acc?: string }
+
+function asItems(v: unknown, accounts: Account[]): Expense[] {
+  if (!Array.isArray(v)) return []
+  return (v as LegacyExpense[])
+    .filter((i) => !!i && typeof i === 'object')
+    .map((i) => {
+      let method: Method = 'cash'
+      if (isMethod(i.method)) method = i.method
+      else if (isMethod(i.acc)) method = i.acc
+      else if (i.acc) method = accounts.find((a) => a.id === i.acc)?.kind ?? 'cash'
+      return {
+        id: typeof i.id === 'string' ? i.id : newId(),
+        amount: typeof i.amount === 'number' ? i.amount : 0,
+        method,
+        note: typeof i.note === 'string' ? i.note : '',
+        ...(typeof i.detail === 'string' && i.detail ? { detail: i.detail } : {}),
+        cur: typeof i.cur === 'string' ? i.cur : 'RWF',
+        at: typeof i.at === 'number' ? i.at : Date.now(),
+      }
+    })
+}
+
 /** Fill in anything a stored blob is missing, so an old save never crashes. */
-export function normalise(raw: (Partial<UserData> & LegacyLimits) | null): UserData {
+export function normalise(
+  raw: (Partial<UserData> & LegacyLimits) | null,
+  now: number = Date.now(),
+): UserData {
   const base = freshData()
   if (!raw) return base
   const selCurs =
@@ -242,17 +277,48 @@ export function normalise(raw: (Partial<UserData> & LegacyLimits) | null): UserD
     safety = { amt: net, cur: mainCur }
   }
 
-  // A save from when hiding was one switch: if it was on, all three of
-  // today's independent eyes start closed.
-  const rawSettings = (raw.settings ?? {}) as Partial<Settings> & { hide?: boolean }
-  const settings: Settings = { ...base.settings, ...rawSettings }
+  // Settings from any version. A save from when hiding was one switch
+  // starts with all three eyes closed if it was on; the old evening
+  // reminder switch becomes the reminders switch; anything about Pro is
+  // simply not read.
+  const rawSettings = (raw.settings ?? {}) as Partial<Settings> & {
+    hide?: boolean
+    reminder?: boolean
+    pro?: boolean
+  }
+  const settings: Settings = {
+    ...base.settings,
+    round: !!rawSettings.round,
+    hideBal: !!rawSettings.hideBal,
+    hideMonth: !!rawSettings.hideMonth,
+    hideSpent: !!rawSettings.hideSpent,
+    seenTour: !!rawSettings.seenTour,
+    hiddenMethods: Array.isArray(rawSettings.hiddenMethods)
+      ? rawSettings.hiddenMethods.filter(isMethod)
+      : [],
+    balanceBy: rawSettings.balanceBy === 'currency' ? 'currency' : 'account',
+    remind:
+      typeof rawSettings.remind === 'boolean'
+        ? rawSettings.remind
+        : typeof rawSettings.reminder === 'boolean'
+          ? rawSettings.reminder
+          : true,
+  }
   if (rawSettings.hide) {
     settings.hideBal = true
     settings.hideMonth = true
     settings.hideSpent = true
   }
 
-  const items = asItems(raw.items)
+  // Accounts, and the balances that sit in them.
+  //
+  // A save from before accounts held one balance per currency and no notion
+  // of where that money was. It all lands on Cash, which the Balance screen
+  // then shows so it can be split across the real accounts.
+  let accounts = asAccounts(raw.accounts)
+  if (!accounts.length) accounts = STANDARD.map((a) => ({ ...a }))
+
+  const items = asItems(raw.items, accounts)
 
   // The tour is shown once, after the first sign-in. A save from before
   // that was recorded has been through it already if anything is in it.
@@ -261,23 +327,16 @@ export function normalise(raw: (Partial<UserData> & LegacyLimits) | null): UserD
       items.length > 0 ||
       plans.length > 0 ||
       Object.values((raw.balances ?? {}) as Record<string, unknown>).some((v) =>
-        typeof v === 'number' ? v !== 0 : Object.values((v ?? {}) as Record<string, number>).some((n) => n !== 0),
+        typeof v === 'number'
+          ? v !== 0
+          : Object.values((v ?? {}) as Record<string, number>).some((n) => n !== 0),
       )
     settings.seenTour = used
   }
 
-  // Accounts, and the balances that sit in them.
-  //
-  // A save from before accounts held one balance per currency and no notion
-  // of where that money was. It all lands on Cash, which the Update balance
-  // screen then says plainly so it can be split across the real accounts.
-  let accounts = asAccounts(raw.accounts)
   let balances: Record<string, Record<string, number>> = {}
   const rawBal = (raw.balances ?? {}) as Record<string, unknown>
-  const perAccount = Object.values(rawBal).every(
-    (v) => v !== null && typeof v === 'object',
-  )
-
+  const perAccount = Object.values(rawBal).every((v) => v !== null && typeof v === 'object')
   if (perAccount) {
     for (const [acc, byCur] of Object.entries(rawBal)) {
       balances[acc] = { ...(byCur as Record<string, number>) }
@@ -286,17 +345,19 @@ export function normalise(raw: (Partial<UserData> & LegacyLimits) | null): UserD
     // The old shape: currency -> amount, with nowhere named.
     balances = { cash: { ...(rawBal as Record<string, number>) } }
   }
+  // Money under an account that no longer exists is still money.
+  for (const id of Object.keys(balances)) {
+    if (id === ALL_ID || accounts.some((a) => a.id === id)) continue
+    accounts.push({ id, name: 'Account', kind: 'cash' })
+  }
 
-  if (!accounts.length) {
-    accounts = STANDARD.filter((a) => STARTING.includes(a.id)).map((a) => ({ ...a }))
-  }
-  // Nothing may be orphaned: an expense recorded on MoMo keeps MoMo on the
-  // list even though a new person is not given one.
-  for (const i of items) {
-    if (accounts.some((a) => a.id === i.acc)) continue
-    const standard = STANDARD.find((a) => a.id === i.acc)
-    accounts.push(standard ? { ...standard } : { id: i.acc, name: 'Account', kind: 'cash' })
-  }
+  // Before check-ups, every expense was taken off the balance the moment it
+  // was recorded, so a save from then is already net of them: the balances
+  // stand as of now, and only what is recorded from here on counts against
+  // them. A save that has never held a balance starts at zero, from the
+  // beginning of time.
+  const balancesAt =
+    typeof raw.balancesAt === 'number' ? raw.balancesAt : raw.balances ? now : 0
 
   return {
     cats: Array.isArray(raw.cats) ? raw.cats : base.cats,
@@ -309,6 +370,8 @@ export function normalise(raw: (Partial<UserData> & LegacyLimits) | null): UserD
     accounts,
     phases: asPhases(raw.phases),
     balances,
+    balancesAt,
+    checkups: asCheckups(raw.checkups),
     plans,
     incomes: asIncomes(raw.incomes),
     safety,

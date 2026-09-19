@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
-  phaseHas,
+  dueWord,
+  dueSoon,
+  countedItems,
+  runningPhase,
+  periods,
   amountIn,
   byDay,
   countedIncome,
@@ -23,6 +27,15 @@ import {
   totalBalance,
 } from './calc'
 import { BASE_RATES, convert, estRate, withRate } from './rates'
+
+/** A check-up with nothing recorded since, which is all these totals need. */
+const srcOf = (balances: Record<string, Record<string, number>>) => ({
+  balances,
+  balancesAt: 0,
+  items: [],
+  incomes: [],
+  phases: [],
+})
 import type { Expense, Income, Plan } from '../types'
 
 const DAY = 864e5
@@ -30,7 +43,7 @@ const DAY = 864e5
 const expense = (over: Partial<Expense> = {}): Expense => ({
   id: Math.random().toString(36),
   amount: 1000,
-  acc: 'cash',
+  method: 'cash',
   note: '',
   cur: 'RWF',
   at: Date.now(),
@@ -258,9 +271,9 @@ describe('top categories', () => {
   it('falls back to the method name when there is no note', () => {
     const top = topCategories(
       BASE_RATES,
-      [expense({ amount: 20, note: '', acc: 'momo' })],
+      [expense({ amount: 20, note: '', method: 'momo' })],
       'RWF',
-      (i) => i.note || i.acc,
+      (i) => i.note || i.method,
     )
     expect(top[0].name).toBe('momo')
   })
@@ -277,35 +290,35 @@ describe('the ultimate total', () => {
 
   it('adds every currency into one figure', () => {
     // 840,000 + 9,600x34 + 1,240x1420 = 840,000 + 326,400 + 1,760,800
-    expect(totalBalance(BASE_RATES, balances, codes, 'RWF')).toBe(2_927_200)
+    expect(totalBalance(BASE_RATES, srcOf(balances), codes, 'RWF')).toBe(2_927_200)
   })
 
   it('gives the same money whichever currency it is shown in', () => {
-    const inRwf = totalBalance(BASE_RATES, balances, codes, 'RWF')
-    const inUsd = totalBalance(BASE_RATES, balances, codes, 'USD')
+    const inRwf = totalBalance(BASE_RATES, srcOf(balances), codes, 'RWF')
+    const inUsd = totalBalance(BASE_RATES, srcOf(balances), codes, 'USD')
     expect(inUsd).toBeCloseTo(inRwf / 1420, 6)
   })
 
   it('counts only the currencies that are picked', () => {
-    expect(totalBalance(BASE_RATES, balances, ['RWF'], 'RWF')).toBe(840_000)
-    expect(totalBalance(BASE_RATES, balances, ['RWF', 'TL'], 'RWF')).toBe(1_166_400)
+    expect(totalBalance(BASE_RATES, srcOf(balances), ['RWF'], 'RWF')).toBe(840_000)
+    expect(totalBalance(BASE_RATES, srcOf(balances), ['RWF', 'TL'], 'RWF')).toBe(1_166_400)
   })
 
   it('treats a currency with no balance as zero', () => {
-    expect(totalBalance(BASE_RATES, { cash: { RWF: 500 } }, ['RWF', 'USD'], 'RWF')).toBe(500)
+    expect(totalBalance(BASE_RATES, srcOf({ cash: { RWF: 500 } }), ['RWF', 'USD'], 'RWF')).toBe(500)
   })
 
   it('drives spendable off the whole pot, not one currency', () => {
     const plans = [plan({ amt: 460_000, cur: 'RWF', prio: 1 })]
     const safety = { amt: 140_000, cur: 'RWF' }
-    const bal = totalBalance(BASE_RATES, balances, codes, 'RWF')
+    const bal = totalBalance(BASE_RATES, srcOf(balances), codes, 'RWF')
     // 2,927,200 − 460,000 − 98,000
     expect(spendableNow(BASE_RATES, bal, plans, safety, [], 'RWF')).toBe(2_369_200)
   })
 
   it('follows an edited rate', () => {
     const cheaper = withRate(BASE_RATES, 'USD', 1000, 'RWF')
-    expect(totalBalance(cheaper, { bank: { USD: 2 } }, ['USD'], 'RWF')).toBe(2000)
+    expect(totalBalance(cheaper, srcOf({ bank: { USD: 2 } }), ['USD'], 'RWF')).toBe(2000)
   })
 })
 
@@ -354,19 +367,72 @@ describe('phases', () => {
   })
 })
 
-describe('an expense belongs to a phase by its date, or by hand', () => {
-  const ph = { id: 'p', name: 'Rwanda', from: '2026-06-01', to: '2026-06-30', items: ['late'] }
+describe('History is cut into phases and months', () => {
   const at = (iso: string) => new Date(iso + 'T12:00:00').getTime()
-  const mk = (id: string, iso: string) => ({ id, amount: 1, acc: 'cash', note: '', cur: 'RWF', at: at(iso) })
+  const mk = (id: string, iso: string) => ({ id, amount: 1, method: 'cash' as const, note: '', cur: 'RWF', at: at(iso) })
+  const items = [mk('a', '2026-09-18'), mk('b', '2026-09-05'), mk('c', '2026-08-20'), mk('d', '2026-07-30')]
 
-  it('takes the ones inside the dates', () => {
-    expect(phaseHas(ph, mk('in', '2026-06-10'))).toBe(true)
-    expect(phaseHas(ph, mk('out', '2026-07-10'))).toBe(false)
+  it('goes by month when no phase is running', () => {
+    const p = periods(items, [])
+    expect(p.map((x) => x.label)).toEqual(['September 2026', 'August 2026', 'July 2026'])
+    expect(p[0].items.map((i) => i.id)).toEqual(['a', 'b'])
   })
 
-  it('and the ones added to it from outside', () => {
-    expect(phaseHas(ph, mk('late', '2026-08-01'))).toBe(true)
-    expect(phaseItems([mk('in', '2026-06-10'), mk('out', '2026-07-10'), mk('late', '2026-08-01')], ph).map((i) => i.id))
-      .toEqual(['in', 'late'])
+  it('a phase takes the expenses in its dates, and the months keep the rest', () => {
+    const ph = { id: 'rw', name: 'Rwanda', from: '2026-08-01', to: '2026-09-10' }
+    const p = periods(items, [ph])
+    expect(p.map((x) => x.label)).toEqual(['September 2026', 'Rwanda', 'July 2026'])
+    expect(p[1].items.map((i) => i.id)).toEqual(['b', 'c'])
+    expect(p[1].phase?.id).toBe('rw')
+  })
+
+  it('a running phase heads the list and takes everything since it started', () => {
+    const ph = { id: 'tr', name: 'Türkiye', from: '2026-09-01', to: '' }
+    const p = periods(items, [ph])
+    expect(p[0].label).toBe('Türkiye')
+    expect(p[0].items.map((i) => i.id)).toEqual(['a', 'b'])
+    expect(runningPhase([ph])?.id).toBe('tr')
+  })
+
+  it('a phase kept off the books drops out of the counted expenses', () => {
+    const ph = { id: 'tr', name: 'Trip', from: '2026-08-15', to: '2026-08-25', offBooks: true }
+    expect(countedItems(items, [ph]).map((i) => i.id)).toEqual(['a', 'b', 'd'])
+    expect(countedItems(items, []).length).toBe(4)
+  })
+})
+
+describe('what is due soon', () => {
+  const now = new Date('2026-09-19T12:00:00').getTime()
+  const plans = [
+    { id: 'p1', name: 'Rent', amt: 60_000, cur: 'RWF', prio: 1 as const, date: '2026-09-21' },
+    { id: 'p2', name: 'Trip', amt: 10, cur: 'RWF', prio: 3 as const, date: '2026-10-01' },
+    { id: 'p3', name: 'Old', amt: 10, cur: 'RWF', prio: 3 as const, date: '2026-09-10' },
+  ]
+  const incomes = [
+    { id: 'i1', name: 'Salary', amt: 300_000, cur: 'RWF', date: '2026-09-19', counted: true },
+    { id: 'i2', name: 'Client', amt: 500, cur: 'USD', date: '2026-09-20', counted: false, receivedAt: 5 },
+  ]
+
+  it('finds plans and incomes due today or within two days, soonest first', () => {
+    const due = dueSoon(plans, incomes, now)
+    expect(due.map((d) => [d.key, d.daysLeft])).toEqual([
+      ['income:i1', 0],
+      ['plan:p1', 2],
+    ])
+  })
+
+  it('leaves out what is past, what is far off, and income already received', () => {
+    const keys = dueSoon(plans, incomes, now).map((d) => d.key)
+    expect(keys).not.toContain('plan:p2')
+    expect(keys).not.toContain('plan:p3')
+    expect(keys).not.toContain('income:i2')
+  })
+
+  it('puts it in words', () => {
+    expect(dueWord('2026-09-19', now)).toBe('today')
+    expect(dueWord('2026-09-20', now)).toBe('tomorrow')
+    expect(dueWord('2026-09-21', now)).toBe('in 2 days')
+    expect(dueWord('2026-09-30', now)).toBe('')
+    expect(dueWord('2026-09-01', now)).toBe('past')
   })
 })

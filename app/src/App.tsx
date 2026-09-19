@@ -22,7 +22,7 @@ import {
   ChangePassword,
   Profile,
 } from './screens/Profile'
-import { Accounts, Phases, PhaseView, ProTour } from './screens/Pro'
+import { Phases, PhaseView } from './screens/Phases'
 import { ErrorScreen } from './screens/ErrorScreen'
 
 const TITLES: Record<string, ReactNode> = {
@@ -34,7 +34,6 @@ const TITLES: Record<string, ReactNode> = {
   password: 'PASSWORD',
   history: 'HISTORY',
   cats: 'CATEGORIES',
-  accounts: 'ACCOUNTS',
   phases: 'PHASES',
   phase: 'PHASE',
   forgot: 'PASSWORD',
@@ -65,7 +64,7 @@ export default function App() {
     )
   }
 
-  const bare: string[] = ['signup', 'signin', 'lock', 'error', 'tour', 'pro']
+  const bare: string[] = ['signup', 'signin', 'lock', 'error', 'tour']
   const chrome = !bare.includes(screen)
 
   // The four destinations reachable from the tab bar. Everything else is
@@ -103,10 +102,8 @@ export default function App() {
           {screen === 'plans' && <PlansScreen app={app} />}
           {screen === 'curs' && <Currencies app={app} />}
           {screen === 'cats' && <Categories app={app} />}
-          {screen === 'accounts' && <Accounts app={app} />}
           {screen === 'phases' && <Phases app={app} />}
           {screen === 'phase' && <PhaseView app={app} />}
-          {screen === 'pro' && <ProTour app={app} />}
           {screen === 'profile' && <Profile app={app} />}
           {screen === 'name' && <ChangeName app={app} />}
           {screen === 'email' && <ChangeEmail app={app} />}
@@ -114,7 +111,9 @@ export default function App() {
           {screen === 'error' && <ErrorScreen app={app} />}
         </div>
 
-        {onTab && <TabBar current={screen as Tab} onGo={(t) => app.go(t)} />}
+        {/* The tab bar steps aside while the amount is being typed, so the
+            phone's keyboard does not push it up over the ways of paying. */}
+        {onTab && !app.typing && <TabBar current={screen as Tab} onGo={(t) => app.go(t)} />}
 
         <Toast toast={app.toast} />
         <ConfirmSheet confirm={app.confirm} onCancel={() => app.setConfirm(null)} />

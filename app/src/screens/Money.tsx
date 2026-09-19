@@ -1,21 +1,22 @@
 import { useState } from 'react'
 import type { App } from '../useApp'
 import type { Income, Plan, Prio } from '../types'
-import { accountBalance, shortDate } from '../lib/calc'
+import { accountBalance, dueWord, shortDate } from '../lib/calc'
 import { clean, groupTyped, MINUS } from '../lib/money'
 import { convert, estRate } from '../lib/rates'
 import { ChipScroller, DANGER, FormError, LINE, pick } from '../components/ui'
 import { ACCENT } from '../components/ui'
-import { CrossIcon, EyeIcon, EyeOffIcon, InfoIcon, MICON } from '../components/icons'
-import { isStandard, STANDARD } from '../lib/storage'
-import { AccFormBox } from './Pro'
+import { CrossIcon, InfoIcon, MICON } from '../components/icons'
+import { ALL_ID, STANDARD } from '../lib/storage'
+import { AccFormBox } from './Phases'
 
 const border = (app: App, field: string) => (app.errField === field ? DANGER : LINE)
 
 /**
- * The accounts, where the balance is: which are offered when recording, one
- * to put back, one to name (Pro). Hiding one keeps it off the recorder's
- * row and nothing else — its history and its balance stay.
+ * The accounts, where the balance is: Cash, Ziraat, Albaraka, whatever the
+ * person calls them. A tap on a name renames it, the cross removes one that
+ * holds nothing, and a new one is a tap away. Shown only when the balance
+ * is entered per account.
  */
 function AccountsArea({ app }: { app: App }) {
   const { accounts } = app
@@ -34,35 +35,17 @@ function AccountsArea({ app }: { app: App }) {
           return (
             <div className="plan-item" key={a.id}>
               <div className="acc-row">
-                <span className="acc-tile" style={{ opacity: a.hidden ? 0.45 : 1 }}>
+                <span className="acc-tile">
                   <Icon />
                 </span>
-                {/* With Pro a tap on the name renames it; the new name is
-                    what the recorder then shows. */}
                 <span
                   className="plan-main"
-                  style={{ opacity: a.hidden ? 0.55 : 1, cursor: app.pro ? 'pointer' : 'default' }}
-                  onClick={app.pro ? () => app.openAccForm(a) : undefined}
+                  style={{ cursor: 'pointer' }}
+                  onClick={() => app.openAccForm(a)}
                 >
                   <span className="plan-name">{a.name}</span>
-                  <span className="plan-date">
-                    {a.hidden
-                      ? 'off the recorder'
-                      : app.pro
-                        ? 'tap to rename'
-                        : isStandard(a.id)
-                          ? 'standard'
-                          : 'yours'}
-                  </span>
+                  <span className="plan-date">tap to rename</span>
                 </span>
-                <button
-                  type="button"
-                  className="acc-eye"
-                  aria-label={(a.hidden ? 'Show ' : 'Hide ') + a.name}
-                  onClick={() => app.toggleHideAcc(a)}
-                >
-                  {a.hidden ? <EyeOffIcon /> : <EyeIcon />}
-                </button>
                 <button
                   type="button"
                   className="x-btn"
@@ -72,38 +55,36 @@ function AccountsArea({ app }: { app: App }) {
                   <CrossIcon />
                 </button>
               </div>
-              {app.pro && form && form.id === a.id && <AccFormBox app={app} inCard />}
+              {form && form.id === a.id && <AccFormBox app={app} inCard />}
             </div>
           )
         })}
       </div>
 
-      {(missing.length > 0 || app.pro) && (
-        <div className="pick-row" style={{ flexWrap: 'wrap' }}>
-          {missing.map((s) => (
-            <button
-              key={s.id}
-              type="button"
-              className="pick-chip"
-              style={pick(false, '#faf9fc', '#4b4f5e')}
-              onClick={() => app.addStandard(s.id)}
-            >
-              ＋ {s.name}
-            </button>
-          ))}
-          {app.pro && !form && (
-            <button
-              type="button"
-              className="pick-chip"
-              style={pick(false, '#faf9fc', '#4b4f5e')}
-              onClick={() => app.openAccForm()}
-            >
-              ＋ Your own
-            </button>
-          )}
-        </div>
-      )}
-      {app.pro && form && form.id === null && <AccFormBox app={app} />}
+      <div className="pick-row" style={{ flexWrap: 'wrap' }}>
+        {missing.map((s) => (
+          <button
+            key={s.id}
+            type="button"
+            className="pick-chip"
+            style={pick(false, '#faf9fc', '#4b4f5e')}
+            onClick={() => app.addStandard(s.id)}
+          >
+            ＋ {s.name}
+          </button>
+        ))}
+        {!form && (
+          <button
+            type="button"
+            className="pick-chip"
+            style={pick(false, '#faf9fc', '#4b4f5e')}
+            onClick={() => app.openAccForm()}
+          >
+            ＋ Add an account
+          </button>
+        )}
+      </div>
+      {form && form.id === null && <AccFormBox app={app} />}
     </div>
   )
 }
@@ -112,39 +93,55 @@ export function Balance({ app }: { app: App }) {
   const { data, selCurs, mainCur, extra, accounts } = app
   const others = data.allCurs.filter((c) => !selCurs.includes(c))
   const rateRows = selCurs.filter((c) => c !== mainCur)
-
-  // A save made before accounts existed put everything under Cash, because
-  // it never recorded where the money was. Said once, here, where it can be
-  // put right in a few taps.
-  const onlyCash =
-    accounts.length > 1 &&
-    Object.entries(data.balances).every(
-      ([id, held]) =>
-        id === 'cash' || !Object.values(held ?? {}).some((v) => v !== 0),
-    ) &&
-    Object.values(data.balances.cash ?? {}).some((v) => v !== 0)
+  const byAccount = data.settings.balanceBy === 'account'
+  const rows = byAccount ? accounts : [{ id: ALL_ID, name: 'Total', kind: 'cash' as const }]
 
   return (
     <div className="page">
       <div className="headline-26">What do you have now?</div>
+      <div className="helper mt-9">
+        {data.balancesAt > 0
+          ? 'Enter what there really is. The gap from your records is kept as a check-up.'
+          : 'Your first check-up. From here, spending comes off it by itself.'}
+      </div>
 
-      {onlyCash && (
-        <div className="helper mt-9">
-          Everything is under Cash, which is where an older version kept it.
-          Move what is really in the bank onto Bank.
-        </div>
-      )}
+      {/* Per account, or one total per currency — the person's choice. */}
+      <div className="mode-seg">
+        <button
+          type="button"
+          className="seg-btn"
+          style={pick(byAccount, '#fff', '#4b4f5e')}
+          onClick={() => app.setBalanceBy('account')}
+        >
+          By account
+        </button>
+        <button
+          type="button"
+          className="seg-btn"
+          style={pick(!byAccount, '#fff', '#4b4f5e')}
+          onClick={() => app.setBalanceBy('currency')}
+        >
+          By currency
+        </button>
+      </div>
 
-      <AccountsArea app={app} />
+      {byAccount && <AccountsArea app={app} />}
 
-      {/* One block per account, each holding its own currencies. */}
-      {accounts.map((a) => (
+      {/* One block per row, each holding its own currencies. The figure on
+          the right follows what is typed, so it answers before Save. */}
+      {rows.map((a) => {
+        const typed = {
+          [a.id]: Object.fromEntries(
+            selCurs.map((c) => [c, Number(app.fBal[a.id + '|' + c]) || 0]),
+          ),
+        }
+        return (
         <div className="bal-acc" key={a.id}>
           <div className="section-head">
             <span className="section-label">{a.name}</span>
             <span className="section-total">
               {app.fmtIn(
-                accountBalance(data.rates, data.balances, a.id, selCurs, app.activeCur),
+                accountBalance(data.rates, typed, a.id, selCurs, app.activeCur),
                 app.activeCur,
               )}
             </span>
@@ -176,7 +173,8 @@ export function Balance({ app }: { app: App }) {
             })}
           </div>
         </div>
-      ))}
+        )
+      })}
 
       <FormError message={app.formError} />
 
@@ -543,7 +541,9 @@ export function PlansScreen({ app }: { app: App }) {
     setInfo((cur) => (cur === k ? null : k))
 
   const plansTotal = plans.reduce((s, p) => s + convert(rates, p.amt, p.cur, activeCur), 0)
-  const incomeTotal = incomes.reduce((s, i) => s + convert(rates, i.amt, i.cur, activeCur), 0)
+  const incomeTotal = incomes
+    .filter((i) => !i.receivedAt)
+    .reduce((s, i) => s + convert(rates, i.amt, i.cur, activeCur), 0)
   const safetyTotal = convert(rates, data.safety.amt, data.safety.cur, activeCur)
   const safetyDirty = (Number(app.fSafety) || 0) !== data.safety.amt
 
@@ -570,7 +570,14 @@ export function PlansScreen({ app }: { app: App }) {
                 </span>
                 <span className="plan-main">
                   <span className="plan-name">{p.name}</span>
-                  {p.date && <span className="plan-date">{shortDate(p.date)}</span>}
+                  {p.date && (
+                    <span className="plan-date">
+                      {shortDate(p.date)}
+                      {dueWord(p.date) && dueWord(p.date) !== 'past' && (
+                        <span className="due-tag">{dueWord(p.date)}</span>
+                      )}
+                    </span>
+                  )}
                 </span>
                 <span className="plan-amt">{app.fmtIn(p.amt, p.cur)}</span>
                 <button
@@ -655,29 +662,58 @@ export function PlansScreen({ app }: { app: App }) {
         <div className="list-card">
           {incomes.map((i) => (
             <div className="plan-item" key={i.id}>
-              <div className="plan-row" onClick={() => app.openIncomeForm(i)}>
+              <div
+                className="plan-row"
+                style={{ opacity: i.receivedAt ? 0.6 : 1 }}
+                onClick={() => app.openIncomeForm(i)}
+              >
                 <span className="plan-main">
                   <span className="plan-name">{i.name}</span>
-                  {i.date && <span className="plan-date">{shortDate(i.date)}</span>}
+                  <span className="plan-date">
+                    {i.receivedAt
+                      ? 'received'
+                      : i.date
+                        ? shortDate(i.date)
+                        : ''}
+                    {!i.receivedAt && dueWord(i.date) && dueWord(i.date) !== 'past' && (
+                      <span className="due-tag">{dueWord(i.date)}</span>
+                    )}
+                  </span>
                 </span>
                 <span className="plan-amt">{app.fmtIn(i.amt, i.cur)}</span>
+                {/* Received puts it in the balance; until then the switch
+                    decides whether it counts into spendable early. */}
                 <button
                   type="button"
-                  className="toggle toggle-sm"
-                  role="switch"
-                  aria-checked={i.counted}
-                  aria-label={'Count ' + i.name + ' into spendable'}
+                  className="received-btn"
+                  style={i.receivedAt ? undefined : { background: ACCENT, color: '#fff' }}
+                  aria-label={(i.receivedAt ? 'Expect ' : 'Received ') + i.name}
                   onClick={(e) => {
                     e.stopPropagation()
-                    app.toggleCounted(i.id)
-                  }}
-                  style={{
-                    background: i.counted ? ACCENT : 'rgba(20,22,31,.14)',
-                    justifyContent: i.counted ? 'flex-end' : 'flex-start',
+                    app.receiveIncome(i)
                   }}
                 >
-                  <span />
+                  {i.receivedAt ? 'Undo' : 'Received'}
                 </button>
+                {!i.receivedAt && (
+                  <button
+                    type="button"
+                    className="toggle toggle-sm"
+                    role="switch"
+                    aria-checked={i.counted}
+                    aria-label={'Count ' + i.name + ' into spendable'}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      app.toggleCounted(i.id)
+                    }}
+                    style={{
+                      background: i.counted ? ACCENT : 'rgba(20,22,31,.14)',
+                      justifyContent: i.counted ? 'flex-end' : 'flex-start',
+                    }}
+                  >
+                    <span />
+                  </button>
+                )}
                 <button
                   type="button"
                   className="x-btn"

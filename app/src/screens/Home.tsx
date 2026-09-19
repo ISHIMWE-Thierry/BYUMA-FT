@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { App } from '../useApp'
-import { amountIn, sumFrom, sumIn } from '../lib/calc'
+import type { Method } from '../types'
+import { amountIn, monthItems, sumFrom, sumIn } from '../lib/calc'
 import { groupTyped, sanitizeAmount } from '../lib/money'
 import {
   MICON,
@@ -9,16 +10,14 @@ import {
   EyeIcon,
   EyeOffIcon,
 } from '../components/icons'
-import { ACCENT, ChipScroller, pick } from '../components/ui'
+import { ACCENT, pick } from '../components/ui'
 
 /** How many of the latest expenses the home screen shows before "More". */
 const RECENT = 3
 
 /**
- * The split of what was spent, one band per account. The design drew three
- * bands, so the first three keep exactly its colours; a Pro list longer
- * than that carries on through the same family rather than inventing a
- * rainbow.
+ * The split of what was spent, one band per way of paying. The design drew
+ * three bands, so cash, bank and MoMo keep exactly its colours.
  */
 export const MIXCOL = [ACCENT, '#4b4f5e', '#8f92a0', '#7b5ec7', '#b4553a', '#1f7a5c']
 export const mixColour = (ix: number) => MIXCOL[ix % MIXCOL.length]
@@ -29,12 +28,6 @@ export function Home({ app }: { app: App }) {
   // back. The eye in Profile and on Analytics still hides every total at
   // once, independently of this.
   const [shown, setShown] = useState(true)
-  // While the amount is being typed the phone's keyboard takes the bottom
-  // half of the screen, so the recorder rises to meet it: the band above
-  // the amount folds away and the accounts come up into view. It stays up
-  // for as long as an amount is there — unfolding on the tap that picks
-  // the account would move that button out from under the finger.
-  const [typing, setTyping] = useState(false)
   const hidden = useRef<HTMLInputElement>(null)
   const noteField = useRef<HTMLInputElement>(null)
   const cta = useRef<HTMLButtonElement>(null)
@@ -42,19 +35,12 @@ export function Home({ app }: { app: App }) {
   const items = data.items
   const rates = data.rates
 
-  const ready = num > 0 && !!app.acc
+  const ready = num > 0 && !!app.method
   const ctaLabel =
-    num <= 0
-      ? 'Record expense'
-      : !app.acc
-        ? 'Pick an account'
-        : 'Record ' + app.fmtIn(num, app.recCur)
+    num <= 0 ? 'Record expense' : !app.method ? 'Pick how you paid' : 'Record ' + app.fmt(num)
 
-  // A balance of zero everywhere means the person has not told the app what
-  // they have yet.
-  const hasBalance = Object.values(data.balances).some((held) =>
-    Object.values(held ?? {}).some((v) => v !== 0),
-  )
+  // Until the first check-up the app has not been told what there is.
+  const hasBalance = data.balancesAt > 0
 
   // The phone's keyboard covers the bottom of the screen while an amount or a
   // new category is being typed. The moment the expense is ready to record,
@@ -66,50 +52,38 @@ export function Home({ app }: { app: App }) {
   // Choosing a category is the last step, so let the keyboard go with it.
   const done = () => (document.activeElement as HTMLElement | null)?.blur()
 
-  // Picking the account is the step after the amount, so the number
+  // Picking how you paid is the step after the amount, so the number
   // keyboard has done its job: it goes, and the reason comes into view
   // where the keyboard was covering it.
-  const pickAcc = (id: string) => {
-    app.setAcc(id)
+  const pickMethod = (m: Method) => {
+    app.setMethod(m)
     done()
     window.setTimeout(() => {
       noteField.current?.scrollIntoView({ block: 'center', behavior: 'smooth' })
     }, 60)
   }
 
-  const total = sumIn(rates, items, mainCur)
+  // This month only, leaving out any phase kept off the books.
+  const month = monthItems(app.counted)
+  const total = sumIn(rates, month, mainCur)
   const allSum = total || 1
-
-  const into = app.intoPhase ? app.data.phases.find((p) => p.id === app.intoPhase) : null
 
   return (
     <div>
       {/* ---------------- the recorder ---------------- */}
-      {into && (
-        <div className="into-bar">
-          <span className="into-text">Into {into.name}</span>
-          <button
-            type="button"
-            className="into-x"
-            aria-label="Not into the phase"
-            onClick={() => app.setIntoPhase(null)}
-          >
-            ✕
-          </button>
-        </div>
-      )}
-      <div className={typing || amt !== '' ? 'recorder recorder-typing' : 'recorder'}>
-        {/* The amount used to sit at the very top, a stretch for a thumb on
-            a tall phone. This empty band pushes it — and everything under
-            it — down to where the hand already is, and folds away while
-            the keyboard is up so the accounts stay in view. */}
+      {/* While an amount is there the band above it folds away, so the
+          figure, the ways of paying and the reason sit in the top half of
+          the screen, above the keyboard. It stays folded until the expense
+          is recorded: unfolding on the tap that picks the way of paying
+          would move that button out from under the finger. */}
+      <div className={app.typing || amt !== '' ? 'recorder recorder-typing' : 'recorder'}>
         <div className="reach" aria-hidden="true" />
         <div className="amount-display" onClick={() => hidden.current?.focus()}>
           <span
             className="amount-code"
             style={{ color: amt === '' ? '#83869a' : '#4b4f5e' }}
           >
-            {app.recCur}
+            {mainCur}
           </span>
           <span
             className="amount-figure"
@@ -128,64 +102,33 @@ export function Home({ app }: { app: App }) {
           enterKeyHint="done"
           value={amt}
           onChange={(e) => app.setAmt(sanitizeAmount(e.target.value))}
-          onFocus={() => {
-            setTyping(true)
-            // Scroll so the amount and the accounts sit at the top, clear
-            // of the keyboard, whichever way the phone resizes the page.
-            window.setTimeout(() => {
-              document.querySelector('.recorder')?.scrollIntoView({ block: 'start', behavior: 'smooth' })
-            }, 80)
-          }}
-          onBlur={() => setTyping(false)}
+          onFocus={() => app.setTyping(true)}
+          onBlur={() => app.setTyping(false)}
           onKeyDown={(e) => {
             if (e.key === 'Enter') e.currentTarget.blur()
           }}
         />
 
-        {/* Where the money comes out of. Up to three sit side by side as
-            the design drew them; a Pro list longer than that scrolls
-            sideways instead of squeezing every name thinner. */}
-        {app.shownAccounts.length <= 3 ? (
-          <div className="methods">
-            {app.shownAccounts.map((a) => {
-              const Icon = MICON[a.kind]
-              return (
-                <button
-                  key={a.id}
-                  type="button"
-                  className="method-btn"
-                  style={pick(app.acc === a.id)}
-                  onClick={() => pickAcc(a.id)}
-                >
-                  <span style={{ display: 'flex' }}>
-                    <Icon />
-                  </span>
-                  {a.name}
-                </button>
-              )
-            })}
-          </div>
-        ) : (
-          <ChipScroller className="methods methods-many">
-            {app.shownAccounts.map((a) => {
-              const Icon = MICON[a.kind]
-              return (
-                <button
-                  key={a.id}
-                  type="button"
-                  className="method-btn"
-                  style={pick(app.acc === a.id)}
-                  onClick={() => pickAcc(a.id)}
-                >
-                  <span style={{ display: 'flex' }}>
-                    <Icon />
-                  </span>
-                  {a.name}
-                </button>
-              )
-            })}
-          </ChipScroller>
-        )}
+        {/* How it was paid: cash, bank, MoMo — whichever are not kept off. */}
+        <div className="methods">
+          {app.methods.map((m) => {
+            const Icon = MICON[m]
+            return (
+              <button
+                key={m}
+                type="button"
+                className="method-btn"
+                style={pick(app.method === m)}
+                onClick={() => pickMethod(m)}
+              >
+                <span style={{ display: 'flex' }}>
+                  <Icon />
+                </span>
+                {app.methodName(m)}
+              </button>
+            )
+          })}
+        </div>
 
         <input
           ref={noteField}
@@ -200,7 +143,7 @@ export function Home({ app }: { app: App }) {
           }}
         />
 
-        <ChipScroller className="chips">
+        <div className="chips">
           {app.orderedCats.slice(0, 8).map((c) => {
             const on = app.note.toLowerCase() === c.toLowerCase()
             return (
@@ -226,7 +169,7 @@ export function Home({ app }: { app: App }) {
           >
             ＋
           </button>
-        </ChipScroller>
+        </div>
 
         <button
           ref={cta}
@@ -257,7 +200,7 @@ export function Home({ app }: { app: App }) {
           </button>
         )}
 
-        {items.length > 0 && (
+        {month.length > 0 && (
           <button
             type="button"
             className={shown ? 'spent-card spent-open' : 'spent-card'}
@@ -265,7 +208,7 @@ export function Home({ app }: { app: App }) {
             onClick={() => setShown((v) => !v)}
           >
             <span className="spent-top">
-              <span className="label-sm">Spent so far</span>
+              <span className="label-sm">Spent this month</span>
               <span className="spent-eye">{shown ? <EyeOffIcon /> : <EyeIcon />}</span>
             </span>
 
@@ -273,13 +216,12 @@ export function Home({ app }: { app: App }) {
               <>
                 <span className="spent-figure">{app.fmt(total)}</span>
                 <span className="mixbar">
-                  {app.accounts.map((a, ix) => (
+                  {app.methods.map((m, ix) => (
                     <span
-                      key={a.id}
+                      key={m}
                       style={{
                         width:
-                          Math.round((sumFrom(rates, items, a.id, mainCur) / allSum) * 1000) /
-                            10 +
+                          Math.round((sumFrom(rates, month, m, mainCur) / allSum) * 1000) / 10 +
                           '%',
                         background: mixColour(ix),
                       }}
@@ -287,13 +229,11 @@ export function Home({ app }: { app: App }) {
                   ))}
                 </span>
                 <span className="mixlegend">
-                  {app.accounts.map((a, ix) => (
-                    <span className="mixleg" key={a.id}>
+                  {app.methods.map((m, ix) => (
+                    <span className="mixleg" key={m}>
                       <span className="dot-7" style={{ background: mixColour(ix) }} />
-                      <span className="mix-name">{a.name}</span>
-                      <span className="mix-sum">
-                        {app.fmt(sumFrom(rates, items, a.id, mainCur))}
-                      </span>
+                      <span className="mix-name">{app.methodName(m)}</span>
+                      <span className="mix-sum">{app.fmt(sumFrom(rates, month, m, mainCur))}</span>
                     </span>
                   ))}
                 </span>
@@ -321,7 +261,7 @@ export function Home({ app }: { app: App }) {
 
             <div className="tl-card recent-card">
               {items.slice(0, RECENT).map((item) => {
-                const Icon = MICON[app.accKind(item.acc)]
+                const Icon = MICON[item.method]
                 return (
                   <button
                     key={item.id}
@@ -333,17 +273,13 @@ export function Home({ app }: { app: App }) {
                       className="tl-tile"
                       style={{
                         background:
-                          app.accKind(item.acc) === 'cash'
-                            ? 'rgba(20,22,31,.05)'
-                            : 'rgba(20,22,31,.08)',
+                          item.method === 'cash' ? 'rgba(20,22,31,.05)' : 'rgba(20,22,31,.08)',
                       }}
                     >
                       <Icon />
                     </span>
-                    <span className="tl-note">{item.note || app.accName(item.acc)}</span>
-                    <span className="tl-amount">
-                      {app.fmt(amountIn(rates, item, mainCur))}
-                    </span>
+                    <span className="tl-note">{item.note || app.methodName(item.method)}</span>
+                    <span className="tl-amount">{app.fmt(amountIn(rates, item, mainCur))}</span>
                   </button>
                 )
               })}

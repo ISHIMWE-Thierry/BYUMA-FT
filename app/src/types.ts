@@ -1,29 +1,22 @@
-/** The three shapes money takes, which is all an icon needs to know. */
+/** The three ways of paying, which is also all an icon needs to know. */
 export type Method = 'cash' | 'momo' | 'bank'
 
 /**
- * Somewhere money sits: Cash, a bank, a wallet on a phone.
- *
- * Everyone has these. Without Pro they are the three standard ones and
- * cannot be renamed; with Pro a person names their own — Ziraat, Albaraka —
- * and each still borrows one of the three shapes for its icon.
+ * Somewhere money sits — Cash, Ziraat, Albaraka, a drawer at home. Accounts
+ * are for the balance only: the total is made from what each holds at the
+ * last check-up. How an expense was paid is a Method, not an account.
  */
 export interface Account {
   id: string
   name: string
   kind: Method
-  /** Made by the person rather than one of the three standard ones. */
-  custom?: boolean
-  /** Kept off the recorder's row of accounts. History and balances still know it. */
-  hidden?: boolean
-  /** The currency this account records in — "Cash USD" spends dollars. Unset means the main one. */
-  cur?: string
 }
 
 /**
- * A named stretch of time — "Rwanda", "Back in Türkiye" — so a season of
- * spending can be read on its own. Expenses belong to a phase by their
- * date, so a phase can be drawn around a time already lived. Pro only.
+ * A named stretch of time — "Rwanda", "Back in Türkiye". Start one and the
+ * expenses recorded while it runs fall into it; when none is running, the
+ * months do the grouping. A phase can be left out of the totals and still
+ * be drawn in the graphs.
  */
 export interface Phase {
   id: string
@@ -31,15 +24,15 @@ export interface Phase {
   /** yyyy-mm-dd. `to` empty means it is still running. */
   from: string
   to: string
-  /** Expenses added by hand from outside the dates, by id. */
-  items?: string[]
+  /** Its expenses stay out of "spent" and the breakdowns; the graphs keep them. */
+  offBooks?: boolean
 }
 
 export interface Expense {
   id: string
   amount: number
-  /** The account it came out of. Matches an Account id. */
-  acc: string
+  /** How it was paid. */
+  method: Method
   note: string
   /** A longer clarification, offered only inside the editor. */
   detail?: string
@@ -72,6 +65,8 @@ export interface Income {
   cur: string
   date: string
   counted: boolean
+  /** Set when the Received button is pressed: it is in the balance now. */
+  receivedAt?: number
 }
 
 /** What should remain if every plan happened and the musts were paid. */
@@ -80,17 +75,32 @@ export interface Safety {
   cur: string
 }
 
+/**
+ * One balance check-up: the moment the totals were entered, and how far
+ * they were from what the records expected — the money that moved without
+ * being recorded, per currency. Plus is more than expected.
+ */
+export interface Checkup {
+  id: string
+  at: number
+  diff: Record<string, number>
+  total: Record<string, number>
+}
+
 /** The three hide flags are independent: each figure keeps its own eye. */
 export interface Settings {
   round: boolean
-  reminder: boolean
   hideBal: boolean
   hideMonth: boolean
   hideSpent: boolean
-  /** Named accounts and phases. Off by default; nothing is lost turning it off. */
-  pro: boolean
   /** The first-run tour has been shown once, after the first sign-in. */
   seenTour: boolean
+  /** Ways of paying kept off the recorder. */
+  hiddenMethods: Method[]
+  /** How the balance is entered: per account, or one total per currency. */
+  balanceBy: 'account' | 'currency'
+  /** A note on the phone two days before, and on the day, a plan or income is due. */
+  remind: boolean
 }
 
 /** Everything one signed-in person owns. Saved on the phone under their id. */
@@ -104,8 +114,11 @@ export interface UserData {
   /** Codes whose rate the person typed themselves — a refresh must not overwrite these. */
   manualRates: string[]
   ratesFetchedAt: number | null
-  /** Per account, then per currency: what is in that account right now. */
+  /** Per account, then per currency: what was there at the last check-up. */
   balances: Record<string, Record<string, number>>
+  /** When the balances were last entered. Expenses after it draw the total down. */
+  balancesAt: number
+  checkups: Checkup[]
   accounts: Account[]
   phases: Phase[]
   plans: Plan[]
@@ -151,10 +164,8 @@ export type Screen =
   | 'email'
   | 'password'
   | 'cats'
-  | 'accounts'
   | 'phases'
   | 'phase'
-  | 'pro'
   | 'forgot'
   | 'error'
 

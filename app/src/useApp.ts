@@ -14,25 +14,26 @@ import type {
   ToastState,
   UserData,
 } from './types'
-import { clean, fmt as fmtMoney, toNumber } from './lib/money'
+import { clean, fmt as fmtMoney, MINUS, toNumber } from './lib/money'
 import { BASE_CURS, estRate, fetchRates, withRate } from './lib/rates'
 import {
-  applyDelete,
-  applyDeleteAll,
-  applyEdit,
-  applyRecord,
+  checkupDiff,
   countedIncome,
+  countedItems,
+  dueSoon,
   p1Shortfall,
   plansTake,
   safetyTake,
   totalBalance,
-  inPhase,
 } from './lib/calc'
 import { passkeyAvailable, registerPasskey, verifyPasskey } from './lib/passkey'
 import {
   clearLegacyFor,
   clearPasskeyId,
   freshData,
+  ALL_ID,
+  METHODS,
+  METHOD_NAME,
   STANDARD,
   loadPasskeyId,
   newId,
@@ -40,6 +41,7 @@ import {
   savePasskeyId,
 } from './lib/storage'
 import { auth, isConfigured } from './lib/firebase'
+import { askPeriodicChecks, askToRemind, handToWorker, nudgeWorker, remindNow } from './lib/remind'
 import { deleteCloud, loadCloud, localDataFor, saveCloud } from './lib/cloud'
 import {
   createUserWithEmailAndPassword,
@@ -182,8 +184,6 @@ export interface AccForm {
   id: string | null
   name: string
   kind: Method
-  /** '' means the main currency. */
-  cur: string
 }
 
 export interface PhaseForm {
@@ -206,8 +206,11 @@ export function useApp() {
 
   // recorder
   const [amt, setAmt] = useState('')
-  const [acc, setAcc] = useState<string | null>(null)
+  const [method, setMethod] = useState<Method | null>(null)
   const [note, setNote] = useState('')
+  // True while the amount is being typed: the tab bar steps aside so the
+  // phone's keyboard does not cover the ways of paying.
+  const [typing, setTyping] = useState(false)
 
   // forms
   const [fName, setFName] = useState('')
@@ -240,7 +243,7 @@ export function useApp() {
   const [eAmt, setEAmt] = useState('')
   const [eNote, setENote] = useState('')
   const [eDetail, setEDetail] = useState('')
-  const [eAcc, setEAcc] = useState<string>('cash')
+  const [eMethod, setEMethod] = useState<Method>('cash')
   // The editor can move an expense to another day; recording always stamps
   // the moment it happened.
   const [eDate, setEDate] = useState(today())
@@ -250,17 +253,10 @@ export function useApp() {
   const [phaseForm, setPhaseForm] = useState<PhaseForm | null>(null)
   const [viewPhase, setViewPhase] = useState<string | null>(null)
 
-  // phases on the History screen: the one being read, a run of expenses
-  // being drawn into a new one, and expenses being picked into an old one
-  const [histPhase, setHistPhase] = useState<string | null>(null)
-  const [selStart, setSelStart] = useState<string | null>(null)
-  const [selIds, setSelIds] = useState<string[]>([])
-  const [selName, setSelName] = useState('')
-  const [pickFor, setPickFor] = useState<string | null>(null)
-  const [picked, setPicked] = useState<string[]>([])
-  // A phase the next recorded expense is put into, set from that phase's
-  // own page; it is dated today, so an ended phase takes it by hand.
-  const [intoPhase, setIntoPhase] = useState<string | null>(null)
+  // History: the period being read (a phase or a month), and the name of
+  // a phase about to be started — null while that little form is closed.
+  const [histPeriod, setHistPeriod] = useState<string | null>(null)
+  const [newPhase, setNewPhase] = useState<string | null>(null)
 
   // locking the app with the phone
   const [canUsePhone, setCanUsePhone] = useState(false)
@@ -279,23 +275,16 @@ export function useApp() {
   const fmt = useCallback((n: number) => fmtMoney(n, mainCur), [mainCur])
   const fmtIn = useCallback((n: number, code: string) => fmtMoney(n, code), [])
 
-  /** Pro is a switch on the data, so it follows the person to any phone. */
-  const pro = data.settings.pro
   const accounts = data.accounts.length ? data.accounts : freshData().accounts
-  /** The ones offered when recording — an account can be kept off that row. */
-  const shownAccounts = accounts.filter((a) => !a.hidden)
-  /** What the recorder is counting in: the chosen account's own currency, or the main one. */
-  const recCur = (acc && accounts.find((a) => a.id === acc)?.cur) || mainCur
+  /** The ways of paying the recorder offers: cash, bank and MoMo, less any kept off. */
+  const methods = METHODS.filter((m) => !data.settings.hiddenMethods.includes(m))
 
   /** The name to show for an account id, even one since removed. */
   const accName = useCallback(
     (id: string) => accounts.find((a) => a.id === id)?.name ?? 'Account',
     [accounts],
   )
-  const accKind = useCallback(
-    (id: string): Method => accounts.find((a) => a.id === id)?.kind ?? 'cash',
-    [accounts],
-  )
+  const methodName = useCallback((m: Method) => METHOD_NAME[m], [])
 
   /* ---------------- helpers ---------------- */
 
@@ -498,12 +487,7 @@ export function useApp() {
       setEditId(null)
       setPlanForm(null)
       setIncomeForm(null)
-      setSelStart(null)
-      setSelIds([])
-      setSelName('')
-      setPickFor(null)
-      setPicked([])
-      setIntoPhase(null)
+      setNewPhase(null)
     },
     [resetForms],
   )
@@ -532,8 +516,8 @@ export function useApp() {
       setEditId(null)
       return true
     }
-    if (selStart || pickFor) {
-      cancelSelect()
+    if (newPhase !== null) {
+      setNewPhase(null)
       return true
     }
     if (planForm) {
@@ -570,13 +554,12 @@ export function useApp() {
       !!editId ||
       !!planForm ||
       !!incomeForm ||
-      !!selStart ||
-      !!pickFor
+      newPhase !== null
     if (needsGuard && !armed.current) {
       history.pushState({ byuma: true }, '')
       armed.current = true
     }
-  }, [ready, screen, confirm, editId, planForm, incomeForm, selStart, pickFor])
+  }, [ready, screen, confirm, editId, planForm, incomeForm, newPhase])
 
   /* ---------------- auth ---------------- */
 
@@ -753,48 +736,29 @@ export function useApp() {
 
   const record = useCallback(() => {
     if (num <= 0) return
-    if (!acc) return showToast('Pick where it came from first.')
+    if (!method) return showToast('Pick how you paid first.')
     const item: Expense = {
       id: newId(),
       amount: num,
-      acc,
+      method,
       note: note.trim(),
-      // Spent in the account's own currency: dollars out of "Cash USD".
-      cur: recCur,
+      cur: mainCur,
       at: Date.now(),
     }
-    const target = intoPhase ? data.phases.find((p) => p.id === intoPhase) : undefined
+    // Nothing else moves: the balance is worked out from the last check-up
+    // and everything recorded since, so recording is only recording.
     setData((d) => ({
       ...d,
       items: [item, ...d.items],
-      // Recording spends the money, so the total comes down by itself.
-      balances: applyRecord(d.balances, item),
       // A note typed by hand becomes a category, ready as a chip next time.
       cats: rememberCategory(d.cats, item.note),
       cleared: false,
-      // Into a phase: by hand, since today may be outside its dates.
-      phases: target
-        ? d.phases.map((p) =>
-            p.id === target.id && !inPhase(p, item.at)
-              ? { ...p, items: [...(p.items ?? []), item.id] }
-              : p,
-          )
-        : d.phases,
     }))
     setAmt('')
     setNote('')
-    setAcc(null)
-    if (target) {
-      // Back to the phase it went into.
-      setIntoPhase(null)
-      setHistPhase(target.id)
-      setScreen('history')
-      setBack('home')
-      showToast('Recorded ' + fmtIn(num, recCur) + ' into ' + target.name + '.', 'ok')
-      return
-    }
-    showToast('Recorded ' + fmtIn(num, recCur) + '.', 'ok')
-  }, [num, acc, note, recCur, intoPhase, data.phases, fmtIn, showToast])
+    setMethod(null)
+    showToast('Recorded ' + fmt(num) + '.', 'ok')
+  }, [num, method, note, mainCur, fmt, showToast])
 
   const askDelete = useCallback(
     (item: Expense) => {
@@ -804,17 +768,12 @@ export function useApp() {
         body:
           fmtIn(item.amount, item.cur) +
           ' · ' +
-          (item.note || accName(item.acc)),
+          (item.note || methodName(item.method)),
         cta: 'Delete',
         danger: true,
         yes: () =>
           freeze('Deleting', FREEZE.deleteOne, () => {
-            setData((d) => ({
-              ...d,
-              items: d.items.filter((x) => x.id !== item.id),
-              // Undoing the spend puts the money back.
-              balances: applyDelete(d.balances, item),
-            }))
+            setData((d) => ({ ...d, items: d.items.filter((x) => x.id !== item.id) }))
             showToast('Expense deleted.', 'ok')
           }),
       })
@@ -832,7 +791,7 @@ export function useApp() {
       setEAmt(String(item.amount))
       setENote(item.note)
       setEDetail(item.detail ?? '')
-      setEAcc(item.acc)
+      setEMethod(item.method)
       setEDate(dayInput(item.at))
     },
     [editId],
@@ -854,20 +813,17 @@ export function useApp() {
                 amount: v,
                 note: eNote.trim(),
                 detail: eDetail.trim() || undefined,
-                acc: eAcc,
+                method: eMethod,
                 at: atOn(eDate, item.at),
               }
             : x,
         ),
-        // Only the difference moves — unless it changed account, and then
-        // the whole amount goes back and comes out of the new one.
-        balances: applyEdit(d.balances, item, v, eAcc),
         cats: rememberCategory(d.cats, eNote),
       }))
       setEditId(null)
       showToast('Expense updated.', 'ok')
     },
-    [eAmt, eNote, eDetail, eAcc, eDate, showToast],
+    [eAmt, eNote, eDetail, eMethod, eDate, showToast],
   )
 
   const askClear = useCallback(() => {
@@ -879,12 +835,7 @@ export function useApp() {
       danger: true,
       yes: () =>
         freeze('Deleting everything', FREEZE.deleteAll, () => {
-          setData((d) => ({
-            ...d,
-            items: [],
-            balances: applyDeleteAll(d.balances, d.items),
-            cleared: true,
-          }))
+          setData((d) => ({ ...d, items: [], cleared: true }))
           setScreen('home')
           showToast('All expenses deleted.', 'ok')
         }),
@@ -893,15 +844,31 @@ export function useApp() {
 
   /* ---------------- balance ---------------- */
 
+  // The rows the Balance screen shows: one per account, or one per
+  // currency when the person would rather not split it up. Either way the
+  // keys are "account|currency", with the whole-total rows under ALL_ID.
+  const balanceRows = useCallback(
+    (d: UserData) =>
+      d.settings.balanceBy === 'currency'
+        ? [{ id: ALL_ID, name: 'Total', kind: 'cash' as Method }]
+        : d.accounts,
+    [],
+  )
+
   // `from` is where the back chevron returns to. Analytics is the usual way
   // in, but the empty home screen also offers it to a person who has not set
   // a balance yet.
   const goBalance = useCallback(
     (from: Screen = 'stats') => {
       const next: Record<string, string> = {}
-      for (const a of data.accounts) {
+      for (const a of balanceRows(data)) {
         for (const c of selCurs) {
-          const held = data.balances[a.id]?.[c]
+          // Entered per currency, the field starts at what every account
+          // together held, so switching the way in loses nothing.
+          const held =
+            a.id === ALL_ID
+              ? Object.values(data.balances).reduce((sum, h) => sum + (h?.[c] ?? 0), 0)
+              : data.balances[a.id]?.[c]
           next[a.id + '|' + c] = held ? String(held) : ''
         }
       }
@@ -911,7 +878,27 @@ export function useApp() {
       setScreen('balance')
       setBack(from)
     },
-    [selCurs, data.accounts, data.balances, clearErr],
+    [selCurs, data, balanceRows, clearErr],
+  )
+
+  /** By account or by currency — and the fields follow. */
+  const setBalanceBy = useCallback(
+    (by: 'account' | 'currency') => {
+      const d: UserData = { ...data, settings: { ...data.settings, balanceBy: by } }
+      setData(d)
+      const next: Record<string, string> = {}
+      for (const a of balanceRows(d)) {
+        for (const c of selCurs) {
+          const held =
+            a.id === ALL_ID
+              ? Object.values(d.balances).reduce((sum, h) => sum + (h?.[c] ?? 0), 0)
+              : d.balances[a.id]?.[c]
+          next[a.id + '|' + c] = held ? String(held) : ''
+        }
+      }
+      setFBal(next)
+    },
+    [data, selCurs, balanceRows],
   )
 
   /* ---------------- plans, safety net, expected income ---------------- */
@@ -1047,6 +1034,33 @@ export function useApp() {
     }))
   }, [])
 
+  /**
+   * Received: it is in the balance from now on rather than waiting to be
+   * counted. Reversible, in case the button was pressed by mistake.
+   */
+  const receiveIncome = useCallback(
+    (inc: Income) => {
+      const now = Date.now()
+      setData((d) => ({
+        ...d,
+        incomes: d.incomes.map((i) =>
+          i.id === inc.id
+            ? inc.receivedAt
+              ? { ...i, receivedAt: undefined }
+              : { ...i, receivedAt: now }
+            : i,
+        ),
+      }))
+      showToast(
+        inc.receivedAt
+          ? inc.name + ' is expected again.'
+          : fmtIn(inc.amt, inc.cur) + ' from ' + inc.name + ' is in your balance.',
+        'ok',
+      )
+    },
+    [showToast, fmtIn],
+  )
+
   /** Typing only stages the safety net; the Set button makes it count. */
   const editSafety = useCallback(
     (raw: string) => {
@@ -1075,10 +1089,16 @@ export function useApp() {
     setData((d) => ({ ...d, safety: { ...d.safety, cur } }))
   }, [])
 
+  /**
+   * A check-up. What is entered replaces the balance, and the gap between it
+   * and what the records expected is kept: plus is money that came in
+   * unrecorded, minus is spending that never got recorded.
+   */
   const saveBalance = useCallback(() => {
+    const rows = balanceRows(data)
     const vals: Record<string, Record<string, number>> = {}
     let anything = 0
-    for (const a of data.accounts) {
+    for (const a of rows) {
       const held: Record<string, number> = {}
       for (const c of selCurs) {
         const key = a.id + '|' + c
@@ -1097,27 +1117,42 @@ export function useApp() {
       added = a * r
     }
     if (anything <= 0 && added <= 0) {
-      return fail('bal' + data.accounts[0].id + '|' + selCurs[0], 'Enter at least one total.')
+      return fail('bal' + rows[0].id + '|' + selCurs[0], 'Enter at least one total.')
     }
-    // Money brought in from another currency lands in the first account,
-    // which is where the person is standing when they add it.
+    // Money brought in from another currency lands in the first row, which
+    // is where the person is standing when they add it.
     if (added > 0) {
-      const into = extra?.into && vals[extra.into] ? extra.into : data.accounts[0].id
+      const into = extra?.into && vals[extra.into] ? extra.into : rows[0].id
       vals[into] = { ...vals[into], [mainCur]: (vals[into]?.[mainCur] ?? 0) + added }
     }
 
+    const { diff, total } = checkupDiff(data, vals, selCurs)
+    const now = Date.now()
+    const moved = selCurs.filter((c) => Math.round(diff[c]) !== 0)
+    const first = data.balancesAt === 0
+
     freeze('Saving balance', FREEZE.saveBalance, () => {
-      setData((d) => ({ ...d, balances: vals }))
+      setData((d) => ({
+        ...d,
+        balances: vals,
+        balancesAt: now,
+        // The first check-up has nothing to compare against.
+        checkups: first ? d.checkups : [{ id: newId(), at: now, diff, total }, ...d.checkups],
+      }))
       setExtra(null)
       setScreen('stats')
       showToast(
-        added > 0
-          ? 'Balance updated with ' + fmtIn(added, mainCur) + ' added.'
-          : 'Balance updated.',
-        'ok',
+        first || !moved.length
+          ? 'Balance updated. Everything matches your records.'
+          : 'Balance updated. Unrecorded: ' +
+              moved
+                .map((c) => (diff[c] > 0 ? '+' : MINUS) + fmtIn(Math.abs(diff[c]), c))
+                .join(', ') +
+              '.',
+        first || !moved.length ? 'ok' : 'warn',
       )
     })
-  }, [data.accounts, selCurs, fBal, extra, mainCur, fail, freeze, showToast, fmtIn])
+  }, [data, balanceRows, selCurs, fBal, extra, mainCur, fail, freeze, showToast, fmtIn])
 
   /* ---------------- rates ---------------- */
 
@@ -1387,21 +1422,14 @@ export function useApp() {
 
   /* ---------------- accounts ---------------- */
 
-  const goAccounts = useCallback(() => {
-    setAccForm(null)
-    clearErr()
-    setScreen('accounts')
-    setBack('profile')
-  }, [clearErr])
-
   /** Open the form empty for a new account, or filled to rename one. */
   const openAccForm = useCallback(
     (a?: Account) => {
       setAccForm((cur) => {
         if (a && cur && cur.id === a.id) return null
         return a
-          ? { id: a.id, name: a.name, kind: a.kind, cur: a.cur ?? '' }
-          : { id: null, name: '', kind: 'bank' as Method, cur: '' }
+          ? { id: a.id, name: a.name, kind: a.kind }
+          : { id: null, name: '', kind: 'bank' as Method }
       })
       clearErr()
     },
@@ -1420,24 +1448,9 @@ export function useApp() {
 
     setData((d) => ({
       ...d,
-      // Never leave a key holding undefined: Firestore refuses the whole
-      // document, and the save fails without a word.
       accounts: accForm.id
-        ? d.accounts.map((a) => {
-            if (a.id !== accForm.id) return a
-            const { cur: _dropped, ...rest } = a
-            return { ...rest, name, kind: accForm.kind, ...(accForm.cur ? { cur: accForm.cur } : {}) }
-          })
-        : [
-            ...d.accounts,
-            {
-              id: newId(),
-              name,
-              kind: accForm.kind,
-              custom: true,
-              ...(accForm.cur ? { cur: accForm.cur } : {}),
-            },
-          ],
+        ? d.accounts.map((a) => (a.id === accForm.id ? { ...a, name, kind: accForm.kind } : a))
+        : [...d.accounts, { id: newId(), name, kind: accForm.kind }],
     }))
     setAccForm(null)
     showToast(accForm.id ? 'Account updated.' : name + ' added.', 'ok')
@@ -1459,19 +1472,17 @@ export function useApp() {
   )
 
   /**
-   * Removing an account is refused while money or expenses still point at
-   * it — silently dropping either would make the books lie.
+   * Removing an account is refused while money still sits in it — dropping
+   * that silently would make the balance lie.
    */
   const askRemoveAcc = useCallback(
     (a: Account) => {
       if (data.accounts.length <= 1) return showToast('Keep at least one account.')
-      const spent = data.items.some((i) => i.acc === a.id)
-      if (spent) return showToast('Expenses came out of ' + a.name + '. It stays.')
       const held = Object.values(data.balances[a.id] ?? {}).some((v) => v !== 0)
       if (held) return showToast('Move what is in ' + a.name + ' to zero first.')
       setConfirm({
         title: 'Remove ' + a.name + '?',
-        body: 'Nothing has been spent from it and it holds nothing.',
+        body: 'It holds nothing.',
         cta: 'Remove',
         danger: true,
         yes: () => {
@@ -1485,7 +1496,7 @@ export function useApp() {
         },
       })
     },
-    [data.accounts.length, data.items, data.balances, showToast],
+    [data.accounts.length, data.balances, showToast],
   )
 
   /* ---------------- phases ---------------- */
@@ -1527,13 +1538,13 @@ export function useApp() {
     if (phaseForm.to && phaseForm.to < phaseForm.from) {
       return fail('phto', 'It cannot end before it started.')
     }
-    const kept = phaseForm.id ? data.phases.find((x) => x.id === phaseForm.id)?.items : undefined
+    const was = phaseForm.id ? data.phases.find((x) => x.id === phaseForm.id) : undefined
     const saved: Phase = {
       id: phaseForm.id ?? newId(),
       name,
       from: phaseForm.from,
       to: phaseForm.to,
-      ...(kept?.length ? { items: kept } : {}),
+      ...(was?.offBooks ? { offBooks: true } : {}),
     }
     setData((d) => ({
       ...d,
@@ -1567,7 +1578,7 @@ export function useApp() {
         yes: () => {
           setData((d) => ({ ...d, phases: d.phases.filter((x) => x.id !== ph.id) }))
           setPhaseForm(null)
-          setHistPhase((cur) => (cur === ph.id ? null : cur))
+          setHistPeriod((cur) => (cur === ph.id ? null : cur))
           if (viewPhase === ph.id) setScreen('phases')
           showToast('Phase removed.', 'ok')
         },
@@ -1578,149 +1589,78 @@ export function useApp() {
 
   /* ---------------- pro ---------------- */
 
-  const goPro = useCallback(() => {
-    setScreen('pro')
-    setBack('profile')
-  }, [])
-
   /* ---------------- phases on the History screen ---------------- */
 
   /**
-   * Drawing a phase around a run of expenses: hold the first, tap the last.
-   * The run is every expense between the two on the timeline, whichever
-   * order they were touched in.
+   * Start a phase from today. What is recorded while it runs falls into it;
+   * the months take over again once it is ended.
    */
-  const startSelect = useCallback((id: string) => {
-    setPickFor(null)
-    setPicked([])
-    setSelIds([])
-    setSelName('')
-    setSelStart(id)
-    if (typeof navigator !== 'undefined' && 'vibrate' in navigator) navigator.vibrate?.(12)
-  }, [])
-
-  const cancelSelect = useCallback(() => {
-    setSelStart(null)
-    setSelIds([])
-    setSelName('')
-    setPickFor(null)
-    setPicked([])
-    clearErr()
-  }, [clearErr])
-
-  /**
-   * What a tap on a row means depends on what is going on: the end of a run
-   * being drawn, an expense being picked into a phase, or just the editor.
-   */
-  const tapRow = useCallback(
-    (item: Expense) => {
-      if (pickFor) {
-        setPicked((cur) =>
-          cur.includes(item.id) ? cur.filter((x) => x !== item.id) : [...cur, item.id],
-        )
-        return
-      }
-      if (selStart) {
-        if (selIds.length) return
-        const order = data.items.map((i) => i.id)
-        const a = order.indexOf(selStart)
-        const b = order.indexOf(item.id)
-        if (a < 0 || b < 0) return
-        setSelIds(order.slice(Math.min(a, b), Math.max(a, b) + 1))
-        return
-      }
-      openEditor(item)
-    },
-    [pickFor, selStart, selIds.length, data.items, openEditor],
-  )
-
-  /** The run becomes a phase: dated from its first expense to its last. */
-  const savePhaseFromSelection = useCallback(() => {
-    const name = selName.trim()
-    if (!name) return fail('selname', 'Give it a name.')
-    const chosen = data.items.filter((i) => selIds.includes(i.id))
-    if (!chosen.length) return
-    const at = chosen.map((i) => i.at)
-    const ph: Phase = {
-      id: newId(),
-      name,
-      from: dayInput(Math.min(...at)),
-      to: dayInput(Math.max(...at)),
-      items: selIds.slice(),
-    }
+  const startPhase = useCallback(() => {
+    const name = (newPhase ?? '').trim()
+    if (!name) return fail('newphase', 'Give it a name.')
+    if (data.phases.some((p) => !p.to)) return fail('newphase', 'End the running phase first.')
+    const ph: Phase = { id: newId(), name, from: today(), to: '' }
     setData((d) => ({ ...d, phases: [...d.phases, ph] }))
-    setSelStart(null)
-    setSelIds([])
-    setSelName('')
-    setHistPhase(ph.id)
+    setNewPhase(null)
+    setHistPeriod(ph.id)
     clearErr()
-    showToast(name + ' added.', 'ok')
-  }, [selName, selIds, data.items, fail, clearErr, showToast])
+    showToast(name + ' started.', 'ok')
+  }, [newPhase, data.phases, fail, clearErr, showToast])
 
-  /** Picking expenses from outside a phase's dates into it. */
-  const startPick = useCallback((ph: Phase) => {
-    setSelStart(null)
-    setSelIds([])
-    setSelName('')
-    setPickFor(ph.id)
-    setPicked([])
-  }, [])
-
-  const savePick = useCallback(() => {
-    if (!pickFor) return
-    const n = picked.length
-    setData((d) => ({
-      ...d,
-      phases: d.phases.map((p) =>
-        p.id === pickFor
-          ? { ...p, items: Array.from(new Set([...(p.items ?? []), ...picked])) }
-          : p,
-      ),
-    }))
-    setPickFor(null)
-    setPicked([])
-    if (n) showToast(n === 1 ? '1 expense added.' : n + ' expenses added.', 'ok')
-  }, [pickFor, picked, showToast])
-
-  /** From a phase's page: record one, and it lands in that phase. */
-  const recordInto = useCallback(
+  /** In or out of the totals. The graphs draw it either way. */
+  const togglePhaseBooks = useCallback(
     (ph: Phase) => {
-      setIntoPhase(ph.id)
-      setScreen('home')
-      setBack('home')
-    },
-    [],
-  )
-
-  /** Take one back out of a phase it was put into by hand. */
-  const unpickFrom = useCallback((ph: Phase, id: string) => {
-    setData((d) => ({
-      ...d,
-      phases: d.phases.map((p) =>
-        p.id === ph.id ? { ...p, items: (p.items ?? []).filter((x) => x !== id) } : p,
-      ),
-    }))
-  }, [])
-
-  /* ---------------- accounts on and off the recorder ---------------- */
-
-  /** Keep an account off the recorder's row without losing anything about it. */
-  const toggleHideAcc = useCallback(
-    (a: Account) => {
-      const hiding = !a.hidden
-      if (hiding && shownAccounts.length <= 1) return showToast('Keep one to record from.')
       setData((d) => ({
         ...d,
-        accounts: d.accounts.map((x) => {
-          if (x.id !== a.id) return x
-          const { hidden: _dropped, ...rest } = x
-          return hiding ? { ...rest, hidden: true } : rest
-        }),
+        phases: d.phases.map((p) =>
+          p.id === ph.id ? (p.offBooks ? { ...p, offBooks: undefined } : { ...p, offBooks: true }) : p,
+        ),
       }))
-      if (hiding && acc === a.id) setAcc(null)
-      showToast(hiding ? a.name + ' hidden from recording.' : a.name + ' is back.', 'ok')
+      showToast(ph.offBooks ? ph.name + ' counts again.' : ph.name + ' is out of the totals.', 'ok')
     },
-    [shownAccounts.length, acc, showToast],
+    [showToast],
+  )
+
+  /* ---------------- reminders ---------------- */
+
+  /**
+   * On: ask the phone once for permission, then remind. The switch is on
+   * the data, so it follows the person, but the permission is the phone's.
+   */
+  const toggleRemind = useCallback(async () => {
+    const on = !data.settings.remind
+    if (on) {
+      const ok = await askToRemind()
+      if (!ok) {
+        showToast('Your phone is not allowing notes from this app.')
+      } else {
+        void askPeriodicChecks()
+        showToast('You will be reminded two days before, and on the day.', 'ok')
+      }
+    }
+    setData((d) => ({ ...d, settings: { ...d.settings, remind: on } }))
+  }, [data.settings.remind, showToast])
+
+  /* ---------------- ways of paying ---------------- */
+
+  /** Keep a way of paying off the recorder, or bring it back. */
+  const toggleMethod = useCallback(
+    (m: Method) => {
+      const hidden = data.settings.hiddenMethods
+      const hiding = !hidden.includes(m)
+      if (hiding && METHODS.length - hidden.length <= 1) return showToast('Keep one way to pay.')
+      setData((d) => ({
+        ...d,
+        settings: {
+          ...d.settings,
+          hiddenMethods: hiding
+            ? [...d.settings.hiddenMethods, m]
+            : d.settings.hiddenMethods.filter((x) => x !== m),
+        },
+      }))
+      if (hiding && method === m) setMethod(null)
+    },
+    [data.settings.hiddenMethods, method, showToast],
   )
 
   /** The tour is done with, by Start or by Skip; it does not come back. */
@@ -1729,24 +1669,6 @@ export function useApp() {
     setScreen('home')
     setBack('home')
   }, [])
-
-  /**
-   * Turning Pro on or off only flips a switch: the accounts and phases
-   * already made are kept either way, so it can be tried and put back
-   * without losing anything.
-   */
-  const setPro = useCallback(
-    (on: boolean) => {
-      setData((d) => ({ ...d, settings: { ...d.settings, pro: on } }))
-      if (on) {
-        setScreen('pro')
-        setBack('profile')
-      } else {
-        showToast('Pro is off. Your accounts and phases are kept.', 'ok')
-      }
-    },
-    [showToast],
-  )
 
   /* ---------------- error screen ---------------- */
 
@@ -1775,7 +1697,29 @@ export function useApp() {
   // The card shows one ultimate total, not a slice per currency: every
   // currency's money, plans and income are converted at the current rates
   // and added up, then expressed in whichever currency is being viewed.
-  const balance = totalBalance(data.rates, data.balances, selCurs, activeCur)
+  const balance = totalBalance(data.rates, data, selCurs, activeCur)
+  /** The expenses that count: everything outside a phase kept off the books. */
+  const counted = useMemo(() => countedItems(data.items, data.phases), [data.items, data.phases])
+  /** Plans and incomes due today or within two days. */
+  const due = useMemo(() => dueSoon(data.plans, data.incomes), [data.plans, data.incomes])
+
+  /* ---------------- reminders, kept in step ---------------- */
+
+  // Whatever is due goes to the worker as it changes, and is shown right
+  // away when the app is open or comes back to the front.
+  useEffect(() => {
+    if (!ready || !user || !data.settings.remind) return
+    void handToWorker(due)
+    const check = () => {
+      if (document.visibilityState !== 'visible') return
+      void remindNow(due)
+      nudgeWorker()
+    }
+    check()
+    document.addEventListener('visibilitychange', check)
+    return () => document.removeEventListener('visibilitychange', check)
+  }, [ready, user, data.settings.remind, due])
+
   const plansOff = plansTake(data.rates, data.plans, activeCur)
   const safetyOff = safetyTake(data.rates, data.safety, activeCur)
   const incomeIn = countedIncome(data.rates, data.incomes, activeCur)
@@ -1800,7 +1744,7 @@ export function useApp() {
     shortfall,
     amt,
     num,
-    acc,
+    method,
     note,
     fName,
     fEmail,
@@ -1823,32 +1767,29 @@ export function useApp() {
     eAmt,
     eNote,
     eDetail,
-    eAcc,
+    eMethod,
     eDate,
     catFreq,
     orderedCats,
     canUsePhone,
     canUseCloud: isConfigured,
     sent,
-    pro,
     accounts,
-    shownAccounts,
-    recCur,
+    methods,
+    counted,
+    due,
+    typing,
     accForm,
     phaseForm,
     viewPhase,
-    histPhase,
-    selStart,
-    selIds,
-    selName,
-    pickFor,
-    picked,
-    intoPhase,
+    histPeriod,
+    newPhase,
 
     // setters
     setAmt,
-    setAcc,
+    setMethod,
     setNote,
+    setTyping,
     setFName,
     setFEmail,
     setFPass,
@@ -1861,14 +1802,13 @@ export function useApp() {
     setIncomeForm,
     setAccForm,
     setPhaseForm,
-    setHistPhase,
-    setSelName,
-    setIntoPhase,
+    setHistPeriod,
+    setNewPhase,
     setExtra,
     setEAmt,
     setENote,
     setEDetail,
-    setEAcc,
+    setEMethod,
     setEDate,
     setBalCur,
     setConfirm,
@@ -1878,7 +1818,7 @@ export function useApp() {
     fmt,
     fmtIn,
     accName,
-    accKind,
+    methodName,
     shownRate,
     editRate,
     canRemoveCur,
@@ -1888,7 +1828,6 @@ export function useApp() {
     goBack,
     goBalance,
     goPlans,
-    goAccounts,
     openAccForm,
     saveAcc,
     addStandard,
@@ -1899,18 +1838,13 @@ export function useApp() {
     savePhase,
     endPhase,
     askRemovePhase,
-    startSelect,
-    cancelSelect,
-    tapRow,
-    savePhaseFromSelection,
-    startPick,
-    savePick,
-    unpickFrom,
-    recordInto,
-    toggleHideAcc,
+    startPhase,
+    togglePhaseBooks,
+    toggleMethod,
+    toggleRemind,
+    setBalanceBy,
+    receiveIncome,
     finishTour,
-    goPro,
-    setPro,
     openPlanForm,
     savePlan,
     askDeletePlan,

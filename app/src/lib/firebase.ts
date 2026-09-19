@@ -32,14 +32,29 @@ const FALLBACK: FirebaseOptions = {
 
 const env = import.meta.env
 
-export const config: FirebaseOptions = {
-  apiKey: env.VITE_FB_API_KEY || FALLBACK.apiKey,
-  authDomain: env.VITE_FB_AUTH_DOMAIN || FALLBACK.authDomain,
-  projectId: env.VITE_FB_PROJECT_ID || FALLBACK.projectId,
-  storageBucket: env.VITE_FB_STORAGE_BUCKET || FALLBACK.storageBucket,
-  messagingSenderId: env.VITE_FB_SENDER_ID || FALLBACK.messagingSenderId,
-  appId: env.VITE_FB_APP_ID || FALLBACK.appId,
+/**
+ * A build for the local emulators (VITE_FB_EMULATOR=1) uses the emulators'
+ * own project — "demo-" ids exist nowhere on the internet, so such a build
+ * can never reach the real project by accident, whatever config is filled
+ * in above. It is also the project the checks look into afterwards.
+ */
+const EMULATOR: FirebaseOptions = {
+  apiKey: 'demo-key',
+  authDomain: 'localhost',
+  projectId: 'demo-byuma',
+  appId: 'demo-app',
 }
+
+export const config: FirebaseOptions = env.VITE_FB_EMULATOR
+  ? EMULATOR
+  : {
+      apiKey: env.VITE_FB_API_KEY || FALLBACK.apiKey,
+      authDomain: env.VITE_FB_AUTH_DOMAIN || FALLBACK.authDomain,
+      projectId: env.VITE_FB_PROJECT_ID || FALLBACK.projectId,
+      storageBucket: env.VITE_FB_STORAGE_BUCKET || FALLBACK.storageBucket,
+      messagingSenderId: env.VITE_FB_SENDER_ID || FALLBACK.messagingSenderId,
+      appId: env.VITE_FB_APP_ID || FALLBACK.appId,
+    }
 
 /** False while the placeholders are still in place, so the app can say so. */
 export const isConfigured =

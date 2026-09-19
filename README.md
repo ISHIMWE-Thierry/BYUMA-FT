@@ -1,9 +1,11 @@
 # Byuma FT Lite
 
 A simple personal expense tracker. You type an amount, tap how you paid
-(Cash, MoMo or Bank), tap what it was for, and it is recorded. It keeps a
-balance in up to three currencies, takes off the money you must keep, and
-shows you what you can actually spend.
+(Cash, Bank or MoMo), tap what it was for, and it is recorded. It keeps a
+balance in up to three currencies, across the accounts you actually keep
+money in, takes off the money you must keep, and shows you what you can
+actually spend. Every check-up of the real balance tells you what moved
+without a record.
 
 The app is built exactly from the designs in the `Byuma FT Lite V2` folder.
 Those files stay in this repository as the reference.
@@ -64,8 +66,9 @@ internet. That also means it has to be told when a new version exists.
 
 **Just reload, or reopen it from the home screen.** One reload is enough:
 the app checks for a new version on every start, whenever you bring it back
-to the front, and every fifteen minutes. If it finds one it swaps itself
-over and refreshes. Your expenses and your account are untouched.
+to the front, and once an hour while it stays open. If it finds one it
+swaps itself over and refreshes. Your expenses and your account are
+untouched.
 
 To be sure which version you have, open **Profile** and look at the bottom
 of the screen — it shows the date and time that version was built.
@@ -96,13 +99,40 @@ bottom — a small line shows the day that version was published.
 
 ## 2. How the money works
 
-**Recording an expense lowers your balance.** If your balance is
-RWF 840,000 and you record RWF 2,400, your balance becomes RWF 837,600 on
-its own. You do not have to correct it by hand.
+**Recording.** Type the amount, tap how you paid — **Cash**, **Bank** or
+**MoMo** — tap what it was for, and it is recorded. Those three are the
+only ways of paying. If you never use one, **Profile → Ways of paying**
+takes it off the recorder with the eye; nothing already recorded changes.
+While you type, the tab bar steps out of the way so the keyboard never
+covers the three buttons.
 
-**Update balance** (Analytics → Update balance) is for when you want to
-correct the app — for example after counting the real cash in your pocket.
-Whatever you type there replaces the old totals.
+**Spent this month**, on the home screen, is this month's total split by
+how it was paid. Tap the card to show or cover the figure.
+
+**Your balance is a check-up, not a running sum.** Every so often — every
+week, say — go to **Analytics → Update balance** and type what each place
+actually holds. That is a check-up. The app compares it with what the
+records expected: the previous check-up, less everything recorded since,
+plus any income you marked received. The difference is what moved without
+a record, and Analytics keeps it under **Check-ups**: minus is spending
+you never typed in, plus is money that came in unrecorded, and "matched
+the records" is the goal. Between check-ups the balance still comes down
+by itself as you record, so it is always the app's best estimate.
+
+**Accounts** are the places the money sits — Ziraat, Albaraka, Vakıf, the
+cash in your pocket. Everyone starts with **Cash** and **Bank**; add,
+rename or remove one at the top of the Update balance screen. Accounts are
+for the check-up only, not for recording an expense. On that screen you
+choose how to answer:
+
+- **By account** — one line per account and currency: "how much is in
+  Ziraat?", "how much cash in TL?". Analytics then shows **Where the money
+  is**, account by account, as of the last check-up.
+- **By currency** — one total per currency, if you would rather not split
+  it up.
+
+Either way the one balance is everything added together, in whichever
+currency you are looking at.
 
 **Plans** (Analytics → Plans) is where you protect money before it is
 spent. A plan is anything you know is coming: rent, school fees, a loan
@@ -121,7 +151,9 @@ should not pretend otherwise.
 And below that, **Expected income** — money on its way to you: a salary,
 a client paying. Each row has a switch: flip it on and that money counts
 into what you can spend before it arrives; leave it off and the app waits
-until you actually have it.
+until you actually have it. On the day it lands, tap **Received**: the
+money joins the balance, and the next check-up expects it. **Undo** takes
+it back out if you tapped by mistake.
 
 So:
 
@@ -149,14 +181,13 @@ If you saved limits in an earlier version, nothing is lost: each old
 **Must** became a P1 plan called "Musts", and your old safety nets were
 pooled into the one safety net, in your main currency.
 
-**Accounts** are where your money sits. Everyone starts with **Cash** and
-**Bank**, and **MoMo** can be added in a tap if you use one. Every expense
-comes out of one account, each account holds its own amounts per currency,
-and your one balance is all of them added together. Update balance asks per
-account, so you can answer "how much is actually in the bank?" — and the
-accounts themselves live at the top of that screen: the eye keeps one off
-the recorder's row without touching its history, the cross removes one
-that holds nothing.
+**Reminders.** Two days before a plan or an expected income is due, and
+again on the day, the app puts a note on your phone. Turn it on in
+**Profile → Reminders**; the phone asks once whether the app may notify
+you. There is no server behind it: the app checks whenever it is open or
+brought back to the front, and an installed app on Android is also woken
+now and then to check while closed. On an iPhone the note appears the
+next time the app is opened.
 
 **Exchange rates.** The app fetches today's rates from the internet when
 you open it. If you have no internet it keeps the last rates it saw. You
@@ -334,10 +365,13 @@ are both refused, and removes everything it made.
 
 ```
 cd app
-npm run emulators          # Firebase's own local Auth + Firestore
-npm run build && npm run preview
-npm run check:cloud        # signs up, records, syncs, migrates, checks the rules
+npm run emulators                                 # Firebase's own local Auth + Firestore
+VITE_FB_EMULATOR=1 npm run build && npm run preview
+npm run check:cloud        # signs up, records, syncs, migrates, checks up, checks the rules
 ```
+
+An emulator build talks only to the emulators' own `demo-byuma` project,
+whatever config is filled in, so it can never touch the real one.
 
 ---
 
@@ -390,42 +424,39 @@ what you want anyway.
 
 ---
 
-## 7. Byuma Pro
+## 7. Phases
 
-A switch in **Profile → Byuma Pro**. Turning it on opens a short tour of
-what it adds; turning it off keeps everything you made, just out of sight.
-Nothing about the app changes for anyone who leaves it off.
+A phase is a stretch of days with a name — a trip, your months in Rwanda,
+a semester. There is one version of the app and phases are part of it;
+the old Pro switch is gone.
 
-**Name your accounts.** Name the places you actually keep money — Ziraat,
-Albaraka, a drawer at home — and give each one a bank, cash or phone icon.
-With Pro, Cash and Bank can be renamed too: tap a name on the Balance
-screen. Whatever you call an account is what the recorder shows as the
-way you paid. An account can also have a currency of its own — a "Cash
-USD" spends dollars, so the recorder counts in USD the moment you pick
-it, and the balance comes off in USD.
+**History is cut into phases and months.** Where you made a phase, the
+list shows it; everywhere else it falls into months, newest first. The
+strip along the top carries each one's name, and the one you pick shows
+its total and how many expenses it holds.
 
-**Phases.** A phase is a stretch of time with a name: your months in
-Rwanda, then being back in Türkiye. Expenses fall into a phase by their
-date, so a phase can be drawn around days already lived — you can name
-last summer today. Two places to work with them:
+**Start one from today.** In History, **＋ Start a phase**, a name, Save.
+From then on everything you record falls into it, and its card at the top
+of History keeps the running total. **End today** closes it, and the next
+records go back to their months. Only one phase runs at a time. A phase
+starts on a day, not at a minute, so one begun today also holds what you
+recorded earlier today.
 
-- **History.** A strip of phase names along the top filters the list; the
-  one you pick shows its total and how many expenses it holds. To make one
-  from what is already there, **hold the first expense and tap the last**:
-  the run lights up, you name it, Save. **＋ Record** on the phase's card
-  records a new expense straight into it; **Add missed** picks expenses
-  from outside its dates into it; the cross on such an expense takes it
-  back out.
-- **Analytics → Phases** is where a phase is read in full — days, average
-  per day, where the money came from, what it went on — and where one is
-  made by dates, edited, ended or removed.
+**Or draw one around days already lived.** **Analytics → Phases → ＋ Add
+a phase by dates** takes a name and two dates; expenses fall in by their
+date, so last summer can be named today. That screen is also where a
+phase is read in full — days, average per day, how it was paid, what it
+went on — and edited, ended or removed.
 
-Open a phase to read it on its own: what it cost, how many days it ran,
-the average day, where the money came from, and what it went on. **End it
-today** closes one season so the next can begin.
+**Out of the totals, still in the graphs.** Open a phase (**Details**)
+and turn **Count in totals** off. Its expenses leave Spent this month,
+the category breakdown and the how-it-was-paid bars, so a trip does not
+read as a bad month at home — but the day-by-day graph still draws every
+day, the phase still shows its own total, and the balance still comes
+down, because the money did go.
 
-An account cannot be removed while expenses came out of it or money is
-still in it — quietly dropping either would make the books lie.
+An account cannot be removed while money is still in it — quietly
+dropping it would make the books lie.
 
 ---
 
@@ -444,9 +475,9 @@ Three deliberate changes. Everything else matches the designs.
    phone that would look like a fault, so signing out just signs you out.
    The "Something broke" screen is still in the app for real errors.
 
-3. **"Continue with Google" is gone.** It cannot really work while your
-   account lives only on your phone, and a button that does not do what it
-   says is worse than no button.
+3. **"Continue with Google"** was left out while accounts lived only on
+   the phone — a button that does not do what it says is worse than no
+   button. It came back with Firebase, and is now the main button.
 
 Two smaller adjustments you asked for during the build:
 
@@ -462,9 +493,9 @@ Two smaller adjustments you asked for during the build:
 - **Limits grew into Plans** — named plans with P1/P2/P3 priorities, one
   safety net (70% held back instead of the design's 75%), and expected
   income you can count in. Section 2 has the current formula.
-- Three independent **eyes**: Spendable, This month, and Spent so far
-  each hide on their own, so you can cover the balance while this month's
-  spending stays readable. Hiding covers only that figure and its own
+- Three independent **eyes**: Spendable, the month card on Analytics, and
+  Spent this month on the home screen each hide on their own, so you can
+  cover the balance while this month's spending stays readable. Hiding covers only that figure and its own
   little breakdown — the transaction list always stays visible. The old
   "Hide totals" switch left Profile; the eyes are the switch now.
 - The **phone's back button** steps back one screen — or closes whatever
@@ -519,12 +550,14 @@ and sits in the middle of the window.
 cd app
 npm install
 npm run dev          # http://localhost:5173
-npm test             # 85 unit tests over the money engine
+npm test             # 103 unit tests over the money engine
 npm run build        # production build into app/dist
 npm run setup:firebase   # sign in, find or create the project, connect it
 npm run connect:firebase # just write a config block into the app
 npm run check:firebase   # ask the project whether it is ready (-- --prove goes further)
 npm run check:live       # drive the built app against the real project in a browser
+npm run emulators        # Firebase's local Auth + Firestore, for the next one
+npm run check:cloud      # drive an emulator build end to end (VITE_FB_EMULATOR=1 npm run build)
 ```
 
 A build with no Firebase config at all warns and carries on, so the layout
@@ -554,11 +587,13 @@ written in real viewport pixels.
 app/src/
   lib/money.ts      formatting, numpad rules
   lib/rates.ts      the rate table, live FX fetch, conversion
-  lib/calc.ts       spendable, the warnings, balance arithmetic, aggregates
+  lib/calc.ts       spendable, the warnings, check-ups, phases and months, what is due
   lib/firebase.ts   the one place Firebase is set up
   lib/cloud.ts      reading and writing the one document per person
   lib/passkey.ts    unlocking with the phone's own fingerprint/face/PIN
+  lib/remind.ts     reminders: asking, showing, handing the list to the worker
   lib/storage.ts    the shape of a save, and reading an older one
+  sw.ts             the service worker: the saved copy of the app, reminders while closed
   useApp.ts         all state and every action
   screens/          one file per group of screens
   styles/           tokens, base (real px), app (design px)

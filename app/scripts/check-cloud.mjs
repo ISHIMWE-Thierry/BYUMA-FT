@@ -164,163 +164,134 @@ check('the old expense survived the move', carried.includes('7,700'), carried.tr
 const cleaned = await old.page.evaluate(() => localStorage.getItem('byuma.accounts.v1'))
 check('the phone-only copy was cleared afterwards', cleaned === null)
 
-console.log('\n5. Pro: named accounts and phases')
-// Turn Pro on from Profile, which lands in its tour.
-await bob.page.click('.tab >> text="Account"')
-await bob.page.waitForSelector('text=Pro features', { timeout: 10000 })
-await bob.page.click('[aria-label="Pro features"]')
-await bob.page.waitForSelector('.tour-slide', { timeout: 10000 })
-check('turning Pro on opens its tour', true)
-await bob.page.click('text=Done')
-await bob.page.waitForSelector('text=Pro features', { timeout: 10000 })
-
-// Name an account of your own.
-await bob.page.click('.row-btn >> text=Accounts')
-await bob.page.waitForSelector('text=＋ Add an account', { timeout: 10000 })
-await bob.page.click('text=＋ Add an account')
-await bob.page.fill('input[placeholder="What is it? Ziraat, Albaraka…"]', 'Ziraat')
-await bob.page.click('text=Add account')
+console.log('\n5. A check-up measures what moved unrecorded')
+// Bob has recorded 2,400 + 12,500 (alice, same account) + 600 = 15,500 in
+// RWF since the account began. A first check-up of 840,000 becomes the
+// balance; the second, 800,000 after a further 900 recorded, is 39,100
+// short of what the records expect.
+await bob.page.click('.tab >> text="Analytics"')
+await bob.page.waitForSelector('text=Update balance', { timeout: 10000 })
+await bob.page.click('.card-footer-btn >> text=Update balance')
+await bob.page.waitForSelector('input[aria-label="Cash RWF total"]', { timeout: 10000 })
+await bob.page.fill('input[aria-label="Cash RWF total"]', '840000')
+await bob.page.click('.btn-save')
+await bob.page.waitForSelector('text=Where the money went', { timeout: 10000 })
 await bob.page.waitForTimeout(1500)
-const accDoc = await (
-  await fetch(`${REST}/users`, { headers: { Authorization: 'Bearer owner' } })
-).json()
-const accNames = (accDoc.documents ?? [])
-  .flatMap((d) => d.fields?.accounts?.arrayValue?.values ?? [])
-  .map((v) => v.mapValue.fields.name.stringValue)
-check('the named account reached Firestore', accNames.includes('Ziraat'), accNames.join(', '))
+const afterFirst = (await bob.page.textContent('.card-balance')).replace(/\s+/g, ' ')
+check('the first check-up becomes the balance', /840,000/.test(afterFirst), afterFirst.slice(0, 60))
 
-// An expense can now come out of it. Accounts is a screen you stepped
-// into, so it keeps the back chevron rather than the tab bar.
-await bob.page.click('button[aria-label="Back"]')
-await bob.page.waitForSelector('.tabbar', { timeout: 10000 })
 await bob.page.click('.tab >> text="Home"')
 await bob.page.waitForSelector('.amount-display')
-await record(bob.page, '900', 'Ziraat')
-await bob.page.waitForTimeout(1500)
-const afterZ = await (
-  await fetch(`${REST}/users`, { headers: { Authorization: 'Bearer owner' } })
-).json()
-const spentFrom = (afterZ.documents ?? [])
-  .flatMap((d) => d.fields?.items?.arrayValue?.values ?? [])
-  .map((v) => v.mapValue.fields.acc.stringValue)
-check('an expense records against it', spentFrom.some((a) => a !== 'cash' && a !== 'bank'),
-  spentFrom.join(', '))
-
-// A phase drawn around days already lived.
+await record(bob.page, '900', 'Cash')
 await bob.page.click('.tab >> text="Analytics"')
-await bob.page.waitForSelector('text=Where the money went', { timeout: 10000 })
-await bob.page.click('.card-footer-btn >> text=Phases')
-await bob.page.waitForSelector('text=＋ Add a phase', { timeout: 10000 })
-await bob.page.click('text=＋ Add a phase')
-await bob.page.fill('input[placeholder="What was it? Rwanda, Back in Türkiye…"]', 'Rwanda')
-await bob.page.fill('input[aria-label="Phase start"]', '2020-01-01')
-await bob.page.click('text=Add phase')
-await bob.page.waitForSelector('.plan-row', { timeout: 10000 })
-check('the phase is listed', true)
-await bob.page.click('.plan-row >> text=Rwanda')
-await bob.page.waitForSelector('text=Spent in this phase', { timeout: 10000 })
-const phaseTotal = await bob.page.textContent('.figure-42')
-check('it totals the expenses inside it', /[1-9]/.test(phaseTotal), phaseTotal.trim())
+await bob.page.waitForSelector('text=Update balance', { timeout: 10000 })
+const running = (await bob.page.textContent('.card-balance')).replace(/\s+/g, ' ')
+check('spending since comes off it', /839,100/.test(running), running.slice(0, 60))
 
-console.log('\n7. Phases drawn on the History screen, and an account kept off the recorder')
-// Bob is deep in a phase's page; the tab bar is two steps back.
-for (let i = 0; i < 3 && (await bob.page.locator('.tabbar').count()) === 0; i++) {
-  await bob.page.click('button[aria-label="Back"]')
-  await bob.page.waitForTimeout(300)
-}
+await bob.page.click('.card-footer-btn >> text=Update balance')
+await bob.page.waitForSelector('input[aria-label="Cash RWF total"]', { timeout: 10000 })
+await bob.page.fill('input[aria-label="Cash RWF total"]', '800000')
+await bob.page.click('.btn-save')
+await bob.page.waitForSelector('text=Check-ups', { timeout: 10000 })
+const checkupText = (await bob.page.textContent('.checkup-row')).replace(/\s+/g, ' ')
+check('the second check-up keeps the unrecorded difference', /39,100/.test(checkupText), checkupText)
+await bob.page.waitForTimeout(1500)
+const cuDoc = await (await fetch(`${REST}/users`, { headers: { Authorization: 'Bearer owner' } })).json()
+const cuDiffs = (cuDoc.documents ?? [])
+  .flatMap((d) => d.fields?.checkups?.arrayValue?.values ?? [])
+  .map((v) => v.mapValue.fields.diff?.mapValue?.fields?.RWF)
+  .map((f) => Number(f?.integerValue ?? f?.doubleValue))
+check('and it reached Firestore', cuDiffs.includes(-39100), cuDiffs.join(', '))
+
+console.log('\n6. Accounts for the balance, a started phase, income received, a way of paying hidden')
+// An account named on the Balance screen holds part of the balance.
+await bob.page.click('.card-footer-btn >> text=Update balance')
+await bob.page.waitForSelector('.acc-area', { timeout: 10000 })
+await bob.page.click('.pick-chip >> text=Add an account')
+await bob.page.fill('input[placeholder="What is it? Ziraat, Albaraka…"]', 'Ziraat')
+await bob.page.click('text=Add account')
+await bob.page.waitForSelector('input[aria-label="Ziraat RWF total"]', { timeout: 5000 })
+check('a named account gets its own balance rows', true)
+await bob.page.fill('input[aria-label="Ziraat RWF total"]', '100000')
+await bob.page.click('.btn-save')
+await bob.page.waitForSelector('text=Where the money is', { timeout: 10000 })
+const where = (await bob.page.textContent('.card-list')).replace(/\s+/g, ' ')
+check('Analytics shows where the money is', /Ziraat/.test(where) && /100,000/.test(where), where.slice(0, 80))
+
+// A phase started from History takes what is recorded from now on.
 await bob.page.click('.tab >> text="History"')
 await bob.page.waitForSelector('.phase-strip', { timeout: 10000 })
-check('Pro shows the phase strip', true)
-const rows = bob.page.locator('.tl-row')
-const rowCount = await rows.count()
-// Hold the first expense, then tap the last: that run becomes a phase.
-const first = await rows.first().boundingBox()
-await bob.page.mouse.move(first.x + 40, first.y + first.height / 2)
-await bob.page.mouse.down()
-await bob.page.waitForTimeout(700)
-await bob.page.mouse.up()
-await bob.page.waitForSelector('text=Now tap the last one', { timeout: 5000 })
-await rows.nth(rowCount - 1).click()
-await bob.page.waitForSelector('.sel-name', { timeout: 5000 })
-check('holding the first and tapping the last selects the run',
-  (await bob.page.locator('.tl-row-picked').count()) === rowCount, `${await bob.page.locator('.tl-row-picked').count()} of ${rowCount} rows`)
+await bob.page.click('.phase-chip-add')
 await bob.page.fill('.sel-name', 'Trip')
 await bob.page.click('.sel-save')
 await bob.page.waitForSelector('.phase-card', { timeout: 5000 })
-const cardText = (await bob.page.textContent('.phase-card')).replace(/\s+/g, ' ')
-check('naming it makes the phase, and it is now the one being read', /Trip/.test(cardText) && new RegExp(rowCount + ' expenses').test(cardText), cardText.slice(0, 80))
-await bob.page.waitForTimeout(1500)
-const phDoc = await (await fetch(`${REST}/users`, { headers: { Authorization: 'Bearer owner' } })).json()
-const phNames = (phDoc.documents ?? []).flatMap((d) => d.fields?.phases?.arrayValue?.values ?? []).map((v) => v.mapValue.fields.name.stringValue)
-check('the phase reached Firestore', phNames.includes('Trip'), phNames.join(', '))
-// Picking into it, then thinking better of it.
-await bob.page.click('text=Add missed')
-await bob.page.waitForSelector('text=Tap what belongs in Trip', { timeout: 5000 })
-await bob.page.click('.sel-cancel')
-check('picking can be cancelled', (await bob.page.locator('.sel-bar').count()) === 0)
-await bob.page.click('.phase-chip >> text=All')
-check('All brings every expense back', (await bob.page.locator('.tl-row').count()) === rowCount)
-
-// Recording from the phase's own page puts the new expense into it.
-await bob.page.click('.phase-chip >> text=Trip')
-await bob.page.waitForSelector('.phase-card')
-await bob.page.click('.phase-card-btn >> text=Record')
-await bob.page.waitForSelector('.into-bar', { timeout: 5000 })
-check('the recorder says which phase it is recording into', /Trip/.test(await bob.page.textContent('.into-bar')))
-await record(bob.page, '500', 'Cash')
+check('a phase can be started from History', /Trip/.test(await bob.page.textContent('.phase-card')))
+await bob.page.click('.tab >> text="Home"')
+await bob.page.waitForSelector('.amount-display')
+await record(bob.page, '5000', 'Bank')
+await bob.page.click('.tab >> text="History"')
+await bob.page.waitForSelector('.phase-strip', { timeout: 10000 })
+// History still has Trip open from when it was started; tapping its chip
+// again would close it.
+if ((await bob.page.locator('.phase-card').count()) === 0) await bob.page.click('.phase-chip >> text=Trip')
 await bob.page.waitForSelector('.phase-card', { timeout: 5000 })
-const afterInto = (await bob.page.textContent('.phase-card')).replace(/\s+/g, ' ')
-check('it lands back in the phase, one expense richer', new RegExp((rowCount + 1) + ' expenses').test(afterInto), afterInto.slice(0, 60))
-await bob.page.click('.phase-chip >> text=All')
+const tripCard = (await bob.page.textContent('.phase-card')).replace(/\s+/g, ' ')
+// A phase starts on a day, not at a moment: one begun today holds everything
+// recorded today — the 2,400 + 12,500 + 600 + 900 from before and this 5,000.
+check(
+  'what is recorded while it runs falls into it',
+  /21,400/.test(tripCard) && /5 expenses/.test(tripCard),
+  tripCard.slice(0, 60),
+)
+// Out of the totals: Spent this month drops it, the graph keeps it. Every
+// expense this month is in the phase, so the Home card has nothing to show.
+await bob.page.click('.phase-card-btn >> text=Details')
+await bob.page.waitForSelector('[aria-label="Count in totals"]', { timeout: 5000 })
+await bob.page.click('[aria-label="Count in totals"]')
+await bob.page.click('button[aria-label="Back"]')
+await bob.page.waitForSelector('.phase-strip', { timeout: 10000 })
+await bob.page.click('.tab >> text="Home"')
+await bob.page.waitForSelector('.amount-display', { timeout: 10000 })
+await bob.page.waitForTimeout(300)
+check(
+  'a phase left out of totals is not in Spent this month',
+  (await bob.page.locator('.spent-card').count()) === 0,
+)
+// The day strip draws everything, so today's bar still carries the 21,400.
+await bob.page.click('.tab >> text="Analytics"')
+await bob.page.waitForSelector('.bar-col[aria-pressed="true"]', { timeout: 10000 })
+const todayBar = (await bob.page.textContent('.bar-col[aria-pressed="true"]')).replace(/\s+/g, ' ')
+check('but the graph still draws it', /21,400/.test(todayBar), todayBar)
+const monthCard = (await bob.page.textContent('.card-month')).replace(/\s+/g, ' ')
+check('while Spent this month leaves it out', /RWF 0$/.test(monthCard), monthCard)
 
-// Hide an account from the recorder on the Balance screen.
+// Expected income: Received puts it in the balance.
 await bob.page.click('.tab >> text="Analytics"')
 await bob.page.waitForSelector('text=Update balance', { timeout: 10000 })
-await bob.page.click('.card-footer-btn >> text=Update balance')
-await bob.page.waitForSelector('.acc-area', { timeout: 10000 })
-// Pro names any account, and the recorder shows that name.
-await bob.page.click('.acc-row >> text=Bank')
-await bob.page.waitForSelector('.mini-form-card input', { timeout: 5000 })
-await bob.page.fill('.mini-form-card input[type="text"]', 'Albaraka')
-await bob.page.click('text=Save changes')
-await bob.page.waitForSelector('.acc-row >> text=Albaraka', { timeout: 5000 })
-check('a standard account can be renamed with Pro', true)
-await bob.page.click('button[aria-label="Hide Ziraat"]')
-await bob.page.waitForSelector('text=off the recorder', { timeout: 5000 })
+await bob.page.click('.card-footer-btn >> text=Plans')
+await bob.page.waitForSelector('text=Expected income', { timeout: 10000 })
+await bob.page.click('text=＋ Add income')
+await bob.page.fill('input[placeholder="Where from? Salary, a client…"]', 'Salary')
+await bob.page.fill('.mini-form input[aria-label="Amount"]', '50000')
+await bob.page.click('text=Add income')
+await bob.page.waitForSelector('button[aria-label="Received Salary"]', { timeout: 5000 })
+await bob.page.click('button[aria-label="Received Salary"]')
+await bob.page.waitForSelector('text=received', { timeout: 5000 })
 await bob.page.click('button[aria-label="Back"]')
+await bob.page.waitForSelector('text=Where the money went', { timeout: 10000 })
+const withIncome = (await bob.page.textContent('.card-balance')).replace(/\s+/g, ' ')
+check('received income is in the balance', /945,000/.test(withIncome), withIncome.slice(0, 60))
+
+// A way of paying kept off the recorder.
+await bob.page.click('.tab >> text="Account"')
+await bob.page.waitForSelector('text=Ways of paying', { timeout: 10000 })
+await bob.page.click('button[aria-label="Hide MoMo"]')
 await bob.page.click('.tab >> text="Home"')
 await bob.page.waitForSelector('.amount-display')
-check('a hidden account leaves the recorder row', (await bob.page.locator('.method-btn >> text=Ziraat').count()) === 0)
-check('the renamed one is what the recorder shows', (await bob.page.locator('.method-btn >> text=Albaraka').count()) === 1)
+check('a hidden way of paying leaves the recorder', (await bob.page.locator('.method-btn >> text=MoMo').count()) === 0)
+check('the others stay', (await bob.page.locator('.method-btn').count()) === 2)
 
-// An account with a currency of its own records in it.
-await bob.page.click('.tab >> text="Analytics"')
-await bob.page.waitForSelector('text=Update balance', { timeout: 10000 })
-await bob.page.click('.card-footer-btn >> text=Update balance')
-await bob.page.waitForSelector('.acc-area', { timeout: 10000 })
-await bob.page.click('.pick-chip >> text=Your own')
-await bob.page.fill('input[placeholder="What is it? Ziraat, Albaraka…"]', 'Cash USD')
-await bob.page.click('.mini-form .pick-chip >> text=USD')
-await bob.page.click('text=Add account')
-await bob.page.waitForSelector('.acc-row >> text=Cash USD', { timeout: 5000 })
-await bob.page.click('button[aria-label="Back"]')
-await bob.page.click('.tab >> text="Home"')
-await bob.page.waitForSelector('.amount-display')
-await bob.page.click('.amount-display')
-await bob.page.fill('input[aria-label="Amount"]', '40')
-await bob.page.click('.method-btn >> text=Cash USD')
-check('the recorder counts in that currency', (await bob.page.textContent('.amount-code')).trim() === 'USD', await bob.page.textContent('.amount-code'))
-await bob.page.click('.cta')
-await bob.page.waitForTimeout(800)
-check('it records', (await bob.page.locator('.toast').count()) > 0 && /Recorded USD 40/.test(await bob.page.textContent('.toast')),
-  (await bob.page.locator('.toast').count()) ? (await bob.page.textContent('.toast')).trim() : 'no toast')
-await bob.page.waitForTimeout(2500)
-const usdDoc = await (await fetch(`${REST}/users`, { headers: { Authorization: 'Bearer owner' } })).json()
-const usdItems = (usdDoc.documents ?? []).flatMap((d) => d.fields?.items?.arrayValue?.values ?? []).map((v) => v.mapValue.fields.cur.stringValue)
-check('and the expense is saved in it', usdItems.includes('USD'), usdItems.join(', '))
-check('the others stay', (await bob.page.locator('.method-btn').count()) >= 2)
-
-console.log('\n6. The rules keep one account out of another')
+console.log('\n7. The rules keep one account out of another')
 const uid = stored?.name.split('/').pop()
 const open = await fetch(`${REST}/users/${uid}`)
 check('an unauthenticated read is refused', open.status === 403 || open.status === 401,

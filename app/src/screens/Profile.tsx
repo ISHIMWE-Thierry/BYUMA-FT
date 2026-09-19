@@ -1,7 +1,7 @@
 import type { App } from '../useApp'
-import type { Settings } from '../types'
+import { METHODS } from '../lib/storage'
 import { ACCENT, DANGER, FormError, LINE, PasswordField, pick } from '../components/ui'
-import { ChevronRight } from '../components/icons'
+import { ChevronRight, EyeIcon, EyeOffIcon, MICON } from '../components/icons'
 
 const border = (app: App, field: string) => (app.errField === field ? DANGER : LINE)
 
@@ -19,12 +19,7 @@ export function Profile({ app }: { app: App }) {
   ]
 
   const phoneOn = !!user?.passkeyId
-
-  // Hiding moved out of here: each figure carries its own eye now.
-  const toggles: { k: keyof Settings; label: string }[] = [
-    { k: 'round', label: 'Round amounts' },
-    { k: 'reminder', label: 'Evening reminder' },
-  ]
+  const { round, remind, hiddenMethods } = data.settings
 
   return (
     <div className="page">
@@ -71,6 +66,34 @@ export function Profile({ app }: { app: App }) {
         ))}
       </div>
 
+      {/* The recorder offers these three; the eye keeps one off it. */}
+      <div className="section-label">Ways of paying</div>
+      <div className="list-card">
+        {METHODS.map((m) => {
+          const Icon = MICON[m]
+          const off = hiddenMethods.includes(m)
+          return (
+            <div className="acc-row" key={m}>
+              <span className="acc-tile" style={{ opacity: off ? 0.45 : 1 }}>
+                <Icon />
+              </span>
+              <span className="plan-main" style={{ opacity: off ? 0.55 : 1 }}>
+                <span className="plan-name">{app.methodName(m)}</span>
+                <span className="plan-date">{off ? 'off the recorder' : 'on the recorder'}</span>
+              </span>
+              <button
+                type="button"
+                className="acc-eye"
+                aria-label={(off ? 'Show ' : 'Hide ') + app.methodName(m)}
+                onClick={() => app.toggleMethod(m)}
+              >
+                {off ? <EyeOffIcon /> : <EyeIcon />}
+              </button>
+            </div>
+          )
+        })}
+      </div>
+
       {app.canUsePhone && (
         <>
           <div className="section-label">Security</div>
@@ -107,72 +130,47 @@ export function Profile({ app }: { app: App }) {
 
       <div className="section-label">Settings</div>
       <div className="list-card">
-        {toggles.map((t) => (
-          <div className="toggle-row" key={t.k}>
-            <div className="toggle-label">{t.label}</div>
-            <button
-              type="button"
-              className="toggle"
-              role="switch"
-              aria-checked={data.settings[t.k]}
-              aria-label={t.label}
-              onClick={() => app.setSetting(t.k)}
-              style={{
-                background: data.settings[t.k] ? ACCENT : 'rgba(20,22,31,.14)',
-                justifyContent: data.settings[t.k] ? 'flex-end' : 'flex-start',
-              }}
-            >
-              <span />
-            </button>
-          </div>
-        ))}
-      </div>
-
-      {/* Pro sits between what the app is and what it holds: a switch, a
-          line saying what it gives, and the way back into the tour. */}
-      <div className="section-label">Byuma Pro</div>
-      <div className="list-card">
         <div className="toggle-row">
           <div>
-            <div className="toggle-label">Pro features</div>
+            <div className="toggle-label">Reminders</div>
             <div className="toggle-hint">
-              {app.pro
-                ? 'Your own accounts and phases. Turn it off and they are kept, just hidden.'
-                : 'Name the places your money sits, and the stretches of time you spend it in.'}
+              {remind
+                ? 'A note two days before, and on the day, a plan or income is due.'
+                : 'Nothing is sent.'}
             </div>
           </div>
           <button
             type="button"
             className="toggle"
             role="switch"
-            aria-checked={app.pro}
-            aria-label="Pro features"
-            onClick={() => app.setPro(!app.pro)}
+            aria-checked={remind}
+            aria-label="Reminders"
+            onClick={() => void app.toggleRemind()}
             style={{
-              background: app.pro ? ACCENT : 'rgba(20,22,31,.14)',
-              justifyContent: app.pro ? 'flex-end' : 'flex-start',
+              background: remind ? ACCENT : 'rgba(20,22,31,.14)',
+              justifyContent: remind ? 'flex-end' : 'flex-start',
             }}
           >
             <span />
           </button>
         </div>
-        {app.pro && (
-          <>
-            <button type="button" className="row-btn" onClick={app.goAccounts}>
-              <span className="row-label">Accounts</span>
-              <span className="row-right">
-                <span className="row-value">{app.accounts.length}</span>
-                <ChevronRight size={12} color="#9497a5" />
-              </span>
-            </button>
-            <button type="button" className="row-btn" onClick={app.goPro}>
-              <span className="row-label">What Pro gives you</span>
-              <span className="row-right">
-                <ChevronRight size={12} color="#9497a5" />
-              </span>
-            </button>
-          </>
-        )}
+        <div className="toggle-row">
+          <div className="toggle-label">Round amounts</div>
+          <button
+            type="button"
+            className="toggle"
+            role="switch"
+            aria-checked={round}
+            aria-label="Round amounts"
+            onClick={() => app.setSetting('round')}
+            style={{
+              background: round ? ACCENT : 'rgba(20,22,31,.14)',
+              justifyContent: round ? 'flex-end' : 'flex-start',
+            }}
+          >
+            <span />
+          </button>
+        </div>
       </div>
 
       <div className="section-label">Data</div>
@@ -188,7 +186,6 @@ export function Profile({ app }: { app: App }) {
           Delete account
         </button>
       </div>
-
 
       <button type="button" className="signout" onClick={app.askSignOut}>
         Sign out
