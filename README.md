@@ -317,7 +317,10 @@ npm run check:firebase -- <apiKey> <projectId>
 
 It also reads `app/.env` if you have one, or the config block straight off
 your clipboard (`pbpaste | npm run check:firebase`). Every failure names the
-console page that fixes it.
+console page that fixes it. Add `-- --prove` and it goes one step further:
+it signs up a throwaway person with the same calls the app makes, saves and
+reads their document, checks that a stranger and another signed-in person
+are both refused, and removes everything it made.
 
 **Checking it locally**, without touching the real project:
 
@@ -496,7 +499,8 @@ npm test             # 85 unit tests over the money engine
 npm run build        # production build into app/dist
 npm run setup:firebase   # sign in, find or create the project, connect it
 npm run connect:firebase # just write a config block into the app
-npm run check:firebase   # ask the project whether it is ready
+npm run check:firebase   # ask the project whether it is ready (-- --prove goes further)
+npm run check:live       # drive the built app against the real project in a browser
 ```
 
 A build with no Firebase config at all warns and carries on, so the layout
@@ -539,6 +543,7 @@ app/scripts/
   setup-firebase.mjs    the whole Firebase setup from your own terminal
   connect-firebase.mjs  writes a config into .env and firebase.ts
   check-firebase.mjs    is the real project ready? (no emulator needed)
+  check-live.mjs        the browser flow against the real project
   check-cloud.mjs       drives the app against the emulators end to end
   check-layout.mjs      every screen on four phone sizes
   make-icons.mjs        the home-screen icons from the logo

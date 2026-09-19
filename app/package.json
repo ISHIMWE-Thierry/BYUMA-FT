@@ -13,7 +13,8 @@
     "check:cloud": "node scripts/check-cloud.mjs",
     "check:firebase": "node scripts/check-firebase.mjs",
     "connect:firebase": "node scripts/connect-firebase.mjs",
-    "setup:firebase": "node scripts/setup-firebase.mjs"
+    "setup:firebase": "node scripts/setup-firebase.mjs",
+    "check:live": "node scripts/check-live.mjs"
   },
   "dependencies": {
     "firebase": "^12.18.0",

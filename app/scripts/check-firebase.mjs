@@ -42,7 +42,10 @@ const fix = (...lines) => lines.forEach((l) => say(`      ${l}`))
 
 const { domain, loose } = args(['domain'])
 const extraDomains = domain.filter(Boolean)
-const config = await gather(loose)
+// --prove goes past asking: it signs up a throwaway person and puts them
+// through what the app does, then removes them again.
+const prove = loose.includes('--prove')
+const config = await gather(loose.filter((a) => a !== '--prove'))
 
 say()
 say('Byuma FT — Firebase check')
@@ -106,12 +109,12 @@ if (project.status === 0) {
       'Firebase console → Authentication → Get started.',
     )
 } else {
-  check('The API key works', true, `answers for ${project.json.projectId}`)
-  if (project.json.projectId !== config.projectId)
-    warn(
-      'The key belongs to a different project',
-      `key says ${project.json.projectId}, config says ${config.projectId}`,
-    )
+  // Google answers with the project number here, not its id, so only a
+  // named project that differs is worth mentioning.
+  const answers = String(project.json.projectId ?? '')
+  check('The API key works', true, `answers for project ${answers}`)
+  if (answers && !/^\d+$/.test(answers) && answers !== config.projectId)
+    warn('The key belongs to a different project', `key says ${answers}, config says ${config.projectId}`)
 
   const allowed = project.json.authorizedDomains || []
   for (const d of [...EXPECTED_DOMAINS, ...extraDomains]) {
@@ -215,6 +218,70 @@ if (/Cloud Firestore API has not been used|SERVICE_DISABLED|API is not enabled/i
   )
 } else {
   warn('Could not tell what Firestore is doing', why || `HTTP ${probe.status}`)
+}
+
+// ── Prove it: a throwaway person does what the app does ─────────────────────
+// The same REST calls the app's SDK makes, as that person, so what passes
+// here passes on a phone. Both people made here delete themselves at the end.
+if (prove && authReady) {
+  say()
+  say('Proving it with a throwaway account')
+  const run = Date.now().toString(36)
+  const person = async (tag) => {
+    const r = await ask(`${ID}/accounts:signUp?key=${key}`, {
+      email: `byuma-check-${run}-${tag}@example.com`,
+      password: `check-${run}-ubuzima`,
+      returnSecureToken: true,
+    })
+    return r.json?.idToken ? { token: r.json.idToken, uid: r.json.localId } : null
+  }
+  const asUser = (token) => ({ headers: { Authorization: `Bearer ${token}` } })
+  const doc = (uid) => `${FS}/projects/${config.projectId}/databases/(default)/documents/users/${uid}`
+  const bye = async (p) => {
+    if (!p) return
+    await fetch(doc(p.uid), { method: 'DELETE', ...asUser(p.token) }).catch(() => {})
+    await ask(`${ID}/accounts:delete?key=${key}`, { idToken: p.token })
+  }
+
+  const me = await person('a')
+  check('a person can sign up with email and password', !!me)
+  let other = null
+  if (me) {
+    try {
+      const written = await fetch(doc(me.uid), {
+        method: 'PATCH',
+        headers: { ...asUser(me.token).headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fields: {
+            items: { arrayValue: { values: [{ mapValue: { fields: { amount: { integerValue: '2400' } } } }] } },
+          },
+        }),
+      })
+      check('they can save their own document', written.ok, written.ok ? '' : `HTTP ${written.status}`)
+
+      const read = await fetch(doc(me.uid), asUser(me.token))
+      const back = await read.json().catch(() => ({}))
+      const amount = back.fields?.items?.arrayValue?.values?.[0]?.mapValue?.fields?.amount?.integerValue
+      check('and read it back', read.ok && amount === '2400', read.ok ? `amount ${amount}` : `HTTP ${read.status}`)
+
+      const stranger = await fetch(doc(me.uid))
+      check('a stranger is refused', stranger.status === 403 || stranger.status === 401, `HTTP ${stranger.status}`)
+
+      other = await person('b')
+      if (other) {
+        const peek = await fetch(doc(me.uid), asUser(other.token))
+        check('so is another signed-in person', peek.status === 403, `HTTP ${peek.status}`)
+      } else {
+        warn('Could not make a second person to test the rules against')
+      }
+    } finally {
+      await bye(me)
+      await bye(other)
+      say('      (both throwaway accounts removed)')
+    }
+  }
+} else if (prove) {
+  warn('Skipped proving it — sign-in is not ready yet')
 }
 
 // ── What it all adds up to ──────────────────────────────────────────────────
