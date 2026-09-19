@@ -3,7 +3,7 @@ import type { App } from '../useApp'
 import { ACCENT, DANGER, VIOLET } from '../components/ui'
 
 /**
- * The first-run tour, shown once right after sign-up. Each slide's picture
+ * The first-run tour, shown once after the first sign-in. Each slide's picture
  * is a working miniature of the real screen it explains — the same cards,
  * pills and serif figures the app is made of — so nothing here has to be
  * unlearned. Swipe or tap Next; Skip is always one tap away, and the
@@ -137,7 +137,7 @@ export function Tour({ app }: { app: App }) {
   }
 
   const next = () => {
-    if (last) return app.go('home')
+    if (last) return app.finishTour()
     const el = track.current
     el?.scrollTo({ left: (ix + 1) * el.clientWidth, behavior: 'smooth' })
   }
@@ -149,7 +149,7 @@ export function Tour({ app }: { app: App }) {
         <span className="tour-count">
           {ix + 1} of {SLIDES.length}
         </span>
-        <button type="button" className="tour-skip" onClick={() => app.go('home')}>
+        <button type="button" className="tour-skip" onClick={app.finishTour}>
           Skip
         </button>
       </div>

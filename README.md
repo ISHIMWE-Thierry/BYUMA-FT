@@ -153,7 +153,10 @@ pooled into the one safety net, in your main currency.
 **Bank**, and **MoMo** can be added in a tap if you use one. Every expense
 comes out of one account, each account holds its own amounts per currency,
 and your one balance is all of them added together. Update balance asks per
-account, so you can answer "how much is actually in the bank?".
+account, so you can answer "how much is actually in the bank?" — and the
+accounts themselves live at the top of that screen: the eye keeps one off
+the recorder's row without touching its history, the cross removes one
+that holds nothing.
 
 **Exchange rates.** The app fetches today's rates from the internet when
 you open it. If you have no internet it keeps the last rates it saw. You
@@ -169,9 +172,14 @@ Your account lives with Firebase now, not on one handset, so the same
 email and password get you in on any phone — and what you record on one
 appears on the other.
 
-**Continue with Google.** One tap, no password to invent or remember. If
-you already had an account with the same email and a password, Google
-signs you into that same account rather than making a second one.
+**Continue with Google.** The one big button, in the middle of the screen
+where your thumb is. One tap, no password to invent or remember. If you
+already had an account with the same email and a password, Google signs
+you into that same account rather than making a second one. Email and
+password sit behind **Use email instead**.
+
+**The quick tour** opens once, right after your first sign-in — by
+whichever door you came in — and then stays out of the way.
 
 **Your password.** What you set when you created the account. The eye at the
 right of any password box shows what you have typed, so you are never
@@ -388,16 +396,28 @@ A switch in **Profile → Byuma Pro**. Turning it on opens a short tour of
 what it adds; turning it off keeps everything you made, just out of sight.
 Nothing about the app changes for anyone who leaves it off.
 
-**Name your own accounts.** Instead of only Cash, Bank and MoMo, name the
-places you actually keep money — Ziraat, Albaraka, a drawer at home — and
-give each one a bank, cash or phone icon. The three standard accounts keep
-their names; yours are yours.
+**Name your accounts.** Name the places you actually keep money — Ziraat,
+Albaraka, a drawer at home — and give each one a bank, cash or phone icon.
+With Pro, Cash and Bank can be renamed too: tap a name on the Balance
+screen. Whatever you call an account is what the recorder shows as the
+way you paid. An account can also have a currency of its own — a "Cash
+USD" spends dollars, so the recorder counts in USD the moment you pick
+it, and the balance comes off in USD.
 
 **Phases.** A phase is a stretch of time with a name: your months in
-Rwanda, then being back in Türkiye. Give it a name and a start, and leave
-the end empty while it is still running. Expenses fall into a phase by
-their date, so a phase can be drawn around days already lived — you can
-name last summer today.
+Rwanda, then being back in Türkiye. Expenses fall into a phase by their
+date, so a phase can be drawn around days already lived — you can name
+last summer today. Two places to work with them:
+
+- **History.** A strip of phase names along the top filters the list; the
+  one you pick shows its total and how many expenses it holds. To make one
+  from what is already there, **hold the first expense and tap the last**:
+  the run lights up, you name it, Save. **Add missed** picks expenses from
+  outside its dates into it; the cross on such an expense takes it back
+  out.
+- **Analytics → Phases** is where a phase is read in full — days, average
+  per day, where the money came from, what it went on — and where one is
+  made by dates, edited, ended or removed.
 
 Open a phase to read it on its own: what it cost, how many days it ran,
 the average day, where the money came from, and what it went on. **End it

@@ -181,6 +181,8 @@ export interface AccForm {
   id: string | null
   name: string
   kind: Method
+  /** '' means the main currency. */
+  cur: string
 }
 
 export interface PhaseForm {
@@ -247,6 +249,15 @@ export function useApp() {
   const [phaseForm, setPhaseForm] = useState<PhaseForm | null>(null)
   const [viewPhase, setViewPhase] = useState<string | null>(null)
 
+  // phases on the History screen: the one being read, a run of expenses
+  // being drawn into a new one, and expenses being picked into an old one
+  const [histPhase, setHistPhase] = useState<string | null>(null)
+  const [selStart, setSelStart] = useState<string | null>(null)
+  const [selIds, setSelIds] = useState<string[]>([])
+  const [selName, setSelName] = useState('')
+  const [pickFor, setPickFor] = useState<string | null>(null)
+  const [picked, setPicked] = useState<string[]>([])
+
   // locking the app with the phone
   const [canUsePhone, setCanUsePhone] = useState(false)
   // true once the reset link has gone out, on the forgot-password screen
@@ -267,6 +278,10 @@ export function useApp() {
   /** Pro is a switch on the data, so it follows the person to any phone. */
   const pro = data.settings.pro
   const accounts = data.accounts.length ? data.accounts : freshData().accounts
+  /** The ones offered when recording — an account can be kept off that row. */
+  const shownAccounts = accounts.filter((a) => !a.hidden)
+  /** What the recorder is counting in: the chosen account's own currency, or the main one. */
+  const recCur = (acc && accounts.find((a) => a.id === acc)?.cur) || mainCur
 
   /** The name to show for an account id, even one since removed. */
   const accName = useCallback(
@@ -319,9 +334,6 @@ export function useApp() {
 
   /* ---------------- boot ---------------- */
 
-  // Set while a sign-up is in flight, so the person who has just made an
-  // account lands in the tour rather than on the home screen.
-  const fresh = useRef(false)
   // True between reading the data down and the first change to it, so
   // arriving at a screen does not immediately write back what was just read.
   const justLoaded = useRef(false)
@@ -368,9 +380,10 @@ export function useApp() {
     // A passkey enrolled on this phone turns it into a lock on the app
     // itself: Firebase keeps the session, so the fingerprint is what stands
     // between someone holding the phone and the money on it.
-    setScreen(fresh.current ? 'tour' : acc.passkeyId ? 'lock' : 'home')
+    // A first sign-in — by any route, Google included — opens on the tour
+    // once; every one after that opens on the money.
+    setScreen(!d.settings.seenTour ? 'tour' : acc.passkeyId ? 'lock' : 'home')
     setBack('home')
-    fresh.current = false
     setReady(true)
     if (carried) showToast('Your expenses moved into your account.', 'ok')
   }, [showToast])
@@ -481,6 +494,11 @@ export function useApp() {
       setEditId(null)
       setPlanForm(null)
       setIncomeForm(null)
+      setSelStart(null)
+      setSelIds([])
+      setSelName('')
+      setPickFor(null)
+      setPicked([])
     },
     [resetForms],
   )
@@ -507,6 +525,10 @@ export function useApp() {
     }
     if (editId) {
       setEditId(null)
+      return true
+    }
+    if (selStart || pickFor) {
+      cancelSelect()
       return true
     }
     if (planForm) {
@@ -538,12 +560,18 @@ export function useApp() {
   useEffect(() => {
     if (!ready) return
     const needsGuard =
-      !ROOTS.includes(screen) || !!confirm || !!editId || !!planForm || !!incomeForm
+      !ROOTS.includes(screen) ||
+      !!confirm ||
+      !!editId ||
+      !!planForm ||
+      !!incomeForm ||
+      !!selStart ||
+      !!pickFor
     if (needsGuard && !armed.current) {
       history.pushState({ byuma: true }, '')
       armed.current = true
     }
-  }, [ready, screen, confirm, editId, planForm, incomeForm])
+  }, [ready, screen, confirm, editId, planForm, incomeForm, selStart, pickFor])
 
   /* ---------------- auth ---------------- */
 
@@ -562,8 +590,6 @@ export function useApp() {
     try {
       const cred = await createUserWithEmailAndPassword(auth, fEmail.trim(), fPass)
       await updateProfile(cred.user, { displayName: fName.trim() })
-      // Seen by the boot listener, which sends a new person to the tour.
-      fresh.current = true
       resetForms()
     } catch (err) {
       const code = (err as { code?: string })?.code ?? ''
@@ -728,7 +754,8 @@ export function useApp() {
       amount: num,
       acc,
       note: note.trim(),
-      cur: mainCur,
+      // Spent in the account's own currency: dollars out of "Cash USD".
+      cur: recCur,
       at: Date.now(),
     }
     setData((d) => ({
@@ -743,8 +770,8 @@ export function useApp() {
     setAmt('')
     setNote('')
     setAcc(null)
-    showToast('Recorded ' + fmt(num) + '.', 'ok')
-  }, [num, acc, note, mainCur, fmt, showToast])
+    showToast('Recorded ' + fmtIn(num, recCur) + '.', 'ok')
+  }, [num, acc, note, recCur, fmtIn, showToast])
 
   const askDelete = useCallback(
     (item: Expense) => {
@@ -1350,8 +1377,8 @@ export function useApp() {
       setAccForm((cur) => {
         if (a && cur && cur.id === a.id) return null
         return a
-          ? { id: a.id, name: a.name, kind: a.kind }
-          : { id: null, name: '', kind: 'bank' as Method }
+          ? { id: a.id, name: a.name, kind: a.kind, cur: a.cur ?? '' }
+          : { id: null, name: '', kind: 'bank' as Method, cur: '' }
       })
       clearErr()
     },
@@ -1370,11 +1397,24 @@ export function useApp() {
 
     setData((d) => ({
       ...d,
+      // Never leave a key holding undefined: Firestore refuses the whole
+      // document, and the save fails without a word.
       accounts: accForm.id
-        ? d.accounts.map((a) =>
-            a.id === accForm.id ? { ...a, name, kind: accForm.kind } : a,
-          )
-        : [...d.accounts, { id: newId(), name, kind: accForm.kind, custom: true }],
+        ? d.accounts.map((a) => {
+            if (a.id !== accForm.id) return a
+            const { cur: _dropped, ...rest } = a
+            return { ...rest, name, kind: accForm.kind, ...(accForm.cur ? { cur: accForm.cur } : {}) }
+          })
+        : [
+            ...d.accounts,
+            {
+              id: newId(),
+              name,
+              kind: accForm.kind,
+              custom: true,
+              ...(accForm.cur ? { cur: accForm.cur } : {}),
+            },
+          ],
     }))
     setAccForm(null)
     showToast(accForm.id ? 'Account updated.' : name + ' added.', 'ok')
@@ -1435,10 +1475,10 @@ export function useApp() {
   }, [clearErr])
 
   const openPhase = useCallback(
-    (id: string) => {
+    (id: string, from: Screen = 'phases') => {
       setViewPhase(id)
       setScreen('phase')
-      setBack('phases')
+      setBack(from)
     },
     [],
   )
@@ -1464,11 +1504,13 @@ export function useApp() {
     if (phaseForm.to && phaseForm.to < phaseForm.from) {
       return fail('phto', 'It cannot end before it started.')
     }
+    const kept = phaseForm.id ? data.phases.find((x) => x.id === phaseForm.id)?.items : undefined
     const saved: Phase = {
       id: phaseForm.id ?? newId(),
       name,
       from: phaseForm.from,
       to: phaseForm.to,
+      ...(kept?.length ? { items: kept } : {}),
     }
     setData((d) => ({
       ...d,
@@ -1478,7 +1520,7 @@ export function useApp() {
     }))
     setPhaseForm(null)
     showToast(phaseForm.id ? 'Phase updated.' : name + ' added.', 'ok')
-  }, [phaseForm, fail, showToast])
+  }, [phaseForm, data.phases, fail, showToast])
 
   /** Close a running phase today, which is how one season becomes the last. */
   const endPhase = useCallback(
@@ -1502,6 +1544,7 @@ export function useApp() {
         yes: () => {
           setData((d) => ({ ...d, phases: d.phases.filter((x) => x.id !== ph.id) }))
           setPhaseForm(null)
+          setHistPhase((cur) => (cur === ph.id ? null : cur))
           if (viewPhase === ph.id) setScreen('phases')
           showToast('Phase removed.', 'ok')
         },
@@ -1515,6 +1558,143 @@ export function useApp() {
   const goPro = useCallback(() => {
     setScreen('pro')
     setBack('profile')
+  }, [])
+
+  /* ---------------- phases on the History screen ---------------- */
+
+  /**
+   * Drawing a phase around a run of expenses: hold the first, tap the last.
+   * The run is every expense between the two on the timeline, whichever
+   * order they were touched in.
+   */
+  const startSelect = useCallback((id: string) => {
+    setPickFor(null)
+    setPicked([])
+    setSelIds([])
+    setSelName('')
+    setSelStart(id)
+    if (typeof navigator !== 'undefined' && 'vibrate' in navigator) navigator.vibrate?.(12)
+  }, [])
+
+  const cancelSelect = useCallback(() => {
+    setSelStart(null)
+    setSelIds([])
+    setSelName('')
+    setPickFor(null)
+    setPicked([])
+    clearErr()
+  }, [clearErr])
+
+  /**
+   * What a tap on a row means depends on what is going on: the end of a run
+   * being drawn, an expense being picked into a phase, or just the editor.
+   */
+  const tapRow = useCallback(
+    (item: Expense) => {
+      if (pickFor) {
+        setPicked((cur) =>
+          cur.includes(item.id) ? cur.filter((x) => x !== item.id) : [...cur, item.id],
+        )
+        return
+      }
+      if (selStart) {
+        if (selIds.length) return
+        const order = data.items.map((i) => i.id)
+        const a = order.indexOf(selStart)
+        const b = order.indexOf(item.id)
+        if (a < 0 || b < 0) return
+        setSelIds(order.slice(Math.min(a, b), Math.max(a, b) + 1))
+        return
+      }
+      openEditor(item)
+    },
+    [pickFor, selStart, selIds.length, data.items, openEditor],
+  )
+
+  /** The run becomes a phase: dated from its first expense to its last. */
+  const savePhaseFromSelection = useCallback(() => {
+    const name = selName.trim()
+    if (!name) return fail('selname', 'Give it a name.')
+    const chosen = data.items.filter((i) => selIds.includes(i.id))
+    if (!chosen.length) return
+    const at = chosen.map((i) => i.at)
+    const ph: Phase = {
+      id: newId(),
+      name,
+      from: dayInput(Math.min(...at)),
+      to: dayInput(Math.max(...at)),
+      items: selIds.slice(),
+    }
+    setData((d) => ({ ...d, phases: [...d.phases, ph] }))
+    setSelStart(null)
+    setSelIds([])
+    setSelName('')
+    setHistPhase(ph.id)
+    clearErr()
+    showToast(name + ' added.', 'ok')
+  }, [selName, selIds, data.items, fail, clearErr, showToast])
+
+  /** Picking expenses from outside a phase's dates into it. */
+  const startPick = useCallback((ph: Phase) => {
+    setSelStart(null)
+    setSelIds([])
+    setSelName('')
+    setPickFor(ph.id)
+    setPicked([])
+  }, [])
+
+  const savePick = useCallback(() => {
+    if (!pickFor) return
+    const n = picked.length
+    setData((d) => ({
+      ...d,
+      phases: d.phases.map((p) =>
+        p.id === pickFor
+          ? { ...p, items: Array.from(new Set([...(p.items ?? []), ...picked])) }
+          : p,
+      ),
+    }))
+    setPickFor(null)
+    setPicked([])
+    if (n) showToast(n === 1 ? '1 expense added.' : n + ' expenses added.', 'ok')
+  }, [pickFor, picked, showToast])
+
+  /** Take one back out of a phase it was put into by hand. */
+  const unpickFrom = useCallback((ph: Phase, id: string) => {
+    setData((d) => ({
+      ...d,
+      phases: d.phases.map((p) =>
+        p.id === ph.id ? { ...p, items: (p.items ?? []).filter((x) => x !== id) } : p,
+      ),
+    }))
+  }, [])
+
+  /* ---------------- accounts on and off the recorder ---------------- */
+
+  /** Keep an account off the recorder's row without losing anything about it. */
+  const toggleHideAcc = useCallback(
+    (a: Account) => {
+      const hiding = !a.hidden
+      if (hiding && shownAccounts.length <= 1) return showToast('Keep one to record from.')
+      setData((d) => ({
+        ...d,
+        accounts: d.accounts.map((x) => {
+          if (x.id !== a.id) return x
+          const { hidden: _dropped, ...rest } = x
+          return hiding ? { ...rest, hidden: true } : rest
+        }),
+      }))
+      if (hiding && acc === a.id) setAcc(null)
+      showToast(hiding ? a.name + ' hidden from recording.' : a.name + ' is back.', 'ok')
+    },
+    [shownAccounts.length, acc, showToast],
+  )
+
+  /** The tour is done with, by Start or by Skip; it does not come back. */
+  const finishTour = useCallback(() => {
+    setData((d) => ({ ...d, settings: { ...d.settings, seenTour: true } }))
+    setScreen('home')
+    setBack('home')
   }, [])
 
   /**
@@ -1619,9 +1799,17 @@ export function useApp() {
     sent,
     pro,
     accounts,
+    shownAccounts,
+    recCur,
     accForm,
     phaseForm,
     viewPhase,
+    histPhase,
+    selStart,
+    selIds,
+    selName,
+    pickFor,
+    picked,
 
     // setters
     setAmt,
@@ -1639,6 +1827,8 @@ export function useApp() {
     setIncomeForm,
     setAccForm,
     setPhaseForm,
+    setHistPhase,
+    setSelName,
     setExtra,
     setEAmt,
     setENote,
@@ -1674,6 +1864,15 @@ export function useApp() {
     savePhase,
     endPhase,
     askRemovePhase,
+    startSelect,
+    cancelSelect,
+    tapRow,
+    savePhaseFromSelection,
+    startPick,
+    savePick,
+    unpickFrom,
+    toggleHideAcc,
+    finishTour,
     goPro,
     setPro,
     openPlanForm,

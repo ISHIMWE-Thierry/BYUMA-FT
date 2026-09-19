@@ -14,6 +14,10 @@ export interface Account {
   kind: Method
   /** Made by the person rather than one of the three standard ones. */
   custom?: boolean
+  /** Kept off the recorder's row of accounts. History and balances still know it. */
+  hidden?: boolean
+  /** The currency this account records in — "Cash USD" spends dollars. Unset means the main one. */
+  cur?: string
 }
 
 /**
@@ -27,6 +31,8 @@ export interface Phase {
   /** yyyy-mm-dd. `to` empty means it is still running. */
   from: string
   to: string
+  /** Expenses added by hand from outside the dates, by id. */
+  items?: string[]
 }
 
 export interface Expense {
@@ -83,6 +89,8 @@ export interface Settings {
   hideSpent: boolean
   /** Named accounts and phases. Off by default; nothing is lost turning it off. */
   pro: boolean
+  /** The first-run tour has been shown once, after the first sign-in. */
+  seenTour: boolean
 }
 
 /** Everything one signed-in person owns. Saved on the phone under their id. */

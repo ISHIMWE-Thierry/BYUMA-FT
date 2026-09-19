@@ -58,6 +58,9 @@ if (isConfigured) {
   // of the app from fighting over that cache.
   dbRef = initializeFirestore(app, {
     localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
+    // A field left holding undefined would otherwise make Firestore refuse
+    // the whole save, silently. Dropping the field is always what is meant.
+    ignoreUndefinedProperties: true,
   })
 
   // Point at the local emulators when running the end-to-end checks.

@@ -6,9 +6,107 @@ import { clean, groupTyped, MINUS } from '../lib/money'
 import { convert, estRate } from '../lib/rates'
 import { ChipScroller, DANGER, FormError, LINE, pick } from '../components/ui'
 import { ACCENT } from '../components/ui'
-import { CrossIcon, InfoIcon } from '../components/icons'
+import { CrossIcon, EyeIcon, EyeOffIcon, InfoIcon, MICON } from '../components/icons'
+import { isStandard, STANDARD } from '../lib/storage'
+import { AccFormBox } from './Pro'
 
 const border = (app: App, field: string) => (app.errField === field ? DANGER : LINE)
+
+/**
+ * The accounts, where the balance is: which are offered when recording, one
+ * to put back, one to name (Pro). Hiding one keeps it off the recorder's
+ * row and nothing else — its history and its balance stay.
+ */
+function AccountsArea({ app }: { app: App }) {
+  const { accounts } = app
+  const form = app.accForm
+  const missing = STANDARD.filter((s) => !accounts.some((a) => a.id === s.id))
+
+  return (
+    <div className="acc-area">
+      <div className="section-head">
+        <span className="section-label">Accounts</span>
+        <span className="section-total">{accounts.length}</span>
+      </div>
+      <div className="list-card">
+        {accounts.map((a) => {
+          const Icon = MICON[a.kind]
+          return (
+            <div className="plan-item" key={a.id}>
+              <div className="acc-row">
+                <span className="acc-tile" style={{ opacity: a.hidden ? 0.45 : 1 }}>
+                  <Icon />
+                </span>
+                {/* With Pro a tap on the name renames it; the new name is
+                    what the recorder then shows. */}
+                <span
+                  className="plan-main"
+                  style={{ opacity: a.hidden ? 0.55 : 1, cursor: app.pro ? 'pointer' : 'default' }}
+                  onClick={app.pro ? () => app.openAccForm(a) : undefined}
+                >
+                  <span className="plan-name">{a.name}</span>
+                  <span className="plan-date">
+                    {a.hidden
+                      ? 'off the recorder'
+                      : app.pro
+                        ? 'tap to rename'
+                        : isStandard(a.id)
+                          ? 'standard'
+                          : 'yours'}
+                  </span>
+                </span>
+                <button
+                  type="button"
+                  className="acc-eye"
+                  aria-label={(a.hidden ? 'Show ' : 'Hide ') + a.name}
+                  onClick={() => app.toggleHideAcc(a)}
+                >
+                  {a.hidden ? <EyeOffIcon /> : <EyeIcon />}
+                </button>
+                <button
+                  type="button"
+                  className="x-btn"
+                  aria-label={'Remove ' + a.name}
+                  onClick={() => app.askRemoveAcc(a)}
+                >
+                  <CrossIcon />
+                </button>
+              </div>
+              {app.pro && form && form.id === a.id && <AccFormBox app={app} inCard />}
+            </div>
+          )
+        })}
+      </div>
+
+      {(missing.length > 0 || app.pro) && (
+        <div className="pick-row" style={{ flexWrap: 'wrap' }}>
+          {missing.map((s) => (
+            <button
+              key={s.id}
+              type="button"
+              className="pick-chip"
+              style={pick(false, '#faf9fc', '#4b4f5e')}
+              onClick={() => app.addStandard(s.id)}
+            >
+              ＋ {s.name}
+            </button>
+          ))}
+          {app.pro && !form && (
+            <button
+              type="button"
+              className="pick-chip"
+              style={pick(false, '#faf9fc', '#4b4f5e')}
+              onClick={() => app.openAccForm()}
+            >
+              ＋ Your own
+            </button>
+          )}
+        </div>
+      )}
+      {app.pro && form && form.id === null && <AccFormBox app={app} />}
+    </div>
+  )
+}
 
 export function Balance({ app }: { app: App }) {
   const { data, selCurs, mainCur, extra, accounts } = app
@@ -36,6 +134,8 @@ export function Balance({ app }: { app: App }) {
           Move what is really in the bank onto Bank.
         </div>
       )}
+
+      <AccountsArea app={app} />
 
       {/* One block per account, each holding its own currencies. */}
       {accounts.map((a) => (

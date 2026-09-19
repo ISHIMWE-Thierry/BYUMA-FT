@@ -111,6 +111,7 @@ export function freshData(): UserData {
       hideMonth: false,
       hideSpent: false,
       pro: false,
+      seenTour: false,
     },
     items: [],
     cleared: false,
@@ -165,6 +166,8 @@ function asAccounts(v: unknown): Account[] {
       name: typeof a.name === 'string' && a.name.trim() ? a.name.trim() : 'Account',
       kind: KINDS.includes(a.kind) ? a.kind : 'cash',
       ...(a.custom ? { custom: true } : {}),
+      ...(a.hidden ? { hidden: true } : {}),
+      ...(typeof a.cur === 'string' && a.cur ? { cur: a.cur } : {}),
     }))
 }
 
@@ -177,6 +180,9 @@ function asPhases(v: unknown): Phase[] {
       name: typeof p.name === 'string' ? p.name : '',
       from: typeof p.from === 'string' ? p.from : '',
       to: typeof p.to === 'string' ? p.to : '',
+      ...(Array.isArray(p.items) && p.items.length
+        ? { items: p.items.filter((id): id is string => typeof id === 'string') }
+        : {}),
     }))
     .filter((p) => p.name && p.from)
 }
@@ -247,6 +253,18 @@ export function normalise(raw: (Partial<UserData> & LegacyLimits) | null): UserD
   }
 
   const items = asItems(raw.items)
+
+  // The tour is shown once, after the first sign-in. A save from before
+  // that was recorded has been through it already if anything is in it.
+  if (rawSettings.seenTour === undefined) {
+    const used =
+      items.length > 0 ||
+      plans.length > 0 ||
+      Object.values((raw.balances ?? {}) as Record<string, unknown>).some((v) =>
+        typeof v === 'number' ? v !== 0 : Object.values((v ?? {}) as Record<string, number>).some((n) => n !== 0),
+      )
+    settings.seenTour = used
+  }
 
   // Accounts, and the balances that sit in them.
   //

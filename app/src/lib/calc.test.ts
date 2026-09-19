@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  phaseHas,
   amountIn,
   byDay,
   countedIncome,
@@ -350,5 +351,22 @@ describe('phases', () => {
   it('puts a running phase first, then the newest', () => {
     const order = sortPhases([rwanda, turkiye]).map((p) => p.name)
     expect(order).toEqual(['Türkiye', 'Rwanda'])
+  })
+})
+
+describe('an expense belongs to a phase by its date, or by hand', () => {
+  const ph = { id: 'p', name: 'Rwanda', from: '2026-06-01', to: '2026-06-30', items: ['late'] }
+  const at = (iso: string) => new Date(iso + 'T12:00:00').getTime()
+  const mk = (id: string, iso: string) => ({ id, amount: 1, acc: 'cash', note: '', cur: 'RWF', at: at(iso) })
+
+  it('takes the ones inside the dates', () => {
+    expect(phaseHas(ph, mk('in', '2026-06-10'))).toBe(true)
+    expect(phaseHas(ph, mk('out', '2026-07-10'))).toBe(false)
+  })
+
+  it('and the ones added to it from outside', () => {
+    expect(phaseHas(ph, mk('late', '2026-08-01'))).toBe(true)
+    expect(phaseItems([mk('in', '2026-06-10'), mk('out', '2026-07-10'), mk('late', '2026-08-01')], ph).map((i) => i.id))
+      .toEqual(['in', 'late'])
   })
 })
