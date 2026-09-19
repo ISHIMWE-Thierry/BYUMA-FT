@@ -20,6 +20,7 @@
  * Extra addresses to look for on the authorized list:
  *   npm run check:firebase -- --domain byuma.vercel.app
  */
+import { args, gather } from './firebase-config.mjs'
 
 /** Where the published app lives, and so what Firebase has to allow. */
 const EXPECTED_DOMAINS = ['byumarwanda.github.io']
@@ -39,78 +40,9 @@ const warn = (name, extra = '') => {
 /** What to do about it, printed under the line that failed. */
 const fix = (...lines) => lines.forEach((l) => say(`      ${l}`))
 
-/** Reads whatever it is given — .env, an environment, a pasted config block. */
-function readConfig(text) {
-  const out = {}
-  const grab = (key) => {
-    // VITE_FB_API_KEY=x, apiKey: "x", "apiKey": 'x' — all the same thing.
-    const m =
-      text.match(new RegExp(`VITE_FB_${key.env}\\s*[=:]\\s*["']?([^"'\\s,}]+)`, 'i')) ||
-      text.match(new RegExp(`["']?${key.js}["']?\\s*:\\s*["']([^"']+)["']`))
-    if (m && m[1] && !m[1].startsWith('PASTE_')) out[key.js] = m[1]
-  }
-  grab({ env: 'API_KEY', js: 'apiKey' })
-  grab({ env: 'AUTH_DOMAIN', js: 'authDomain' })
-  grab({ env: 'PROJECT_ID', js: 'projectId' })
-  grab({ env: 'STORAGE_BUCKET', js: 'storageBucket' })
-  grab({ env: 'SENDER_ID', js: 'messagingSenderId' })
-  grab({ env: 'APP_ID', js: 'appId' })
-  return out
-}
-
-async function stdin() {
-  // Only read it when something was actually piped in. A terminal, or no
-  // terminal at all, is a character device; a pipe or a redirected file is
-  // not — and waiting on the wrong one hangs the whole check.
-  const { fstatSync } = await import('node:fs')
-  let piped = false
-  try {
-    const s = fstatSync(0)
-    piped = s.isFIFO() || s.isFile()
-  } catch {
-    return ''
-  }
-  if (!piped) return ''
-  let text = ''
-  for await (const chunk of process.stdin) text += chunk
-  return text
-}
-
-const args = process.argv.slice(2)
-const extraDomains = []
-const loose = []
-for (let i = 0; i < args.length; i++) {
-  if (args[i] === '--domain') extraDomains.push(args[++i])
-  else loose.push(args[i])
-}
-
-// Whichever of these turns up something, in this order.
-const fromEnv = Object.entries(process.env)
-  .filter(([k]) => k.startsWith('VITE_FB_'))
-  .map(([k, v]) => `${k}=${v}`)
-  .join('\n')
-const fromFile = await (async () => {
-  const { readFile } = await import('node:fs/promises')
-  for (const p of ['.env', '.env.local', '../.env']) {
-    try {
-      return await readFile(new URL(p, new URL('../', import.meta.url)), 'utf8')
-    } catch {
-      /* try the next one */
-    }
-  }
-  return ''
-})()
-
-const config = {
-  ...readConfig(fromFile),
-  ...readConfig(fromEnv),
-  ...readConfig(await stdin()),
-}
-// Two bare arguments are the key and the project, in that order.
-if (loose[0]?.startsWith('AIza')) config.apiKey = loose[0]
-if (loose[1]) config.projectId = loose[1]
-if (!config.authDomain && config.projectId)
-  config.authDomain = `${config.projectId}.firebaseapp.com`
+const { domain, loose } = args(['domain'])
+const extraDomains = domain.filter(Boolean)
+const config = await gather(loose)
 
 say()
 say('Byuma FT — Firebase check')

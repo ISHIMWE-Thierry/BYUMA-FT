@@ -242,8 +242,24 @@ Only needed once, by whoever publishes the app.
 3. **Project settings → General → Your apps → Web app.** Copy the config
    block it shows (`apiKey`, `authDomain`, `projectId`, and the rest).
 
-**In this repository**, under
-*Settings → Secrets and variables → Actions → Variables*, add one repository
+**Then connect the app to it.** One command takes that config block and
+writes it where the app looks — `app/.env` for local runs, and the
+`FALLBACK` block in `app/src/lib/firebase.ts`, which is what every
+published copy carries:
+
+```
+cd app
+pbpaste | npm run connect:firebase          # or: -- <apiKey> <projectId>
+git commit -am "Point the app at Firebase" && git push
+```
+
+That is the whole connection: nothing to set up in the repository
+settings, and nothing in a hosting dashboard. It finishes by running the
+readiness check below, so you find out in the same breath what is still
+switched off in the console.
+
+**Or keep the config out of the code**, under
+*Settings → Secrets and variables → Actions → Variables*, with one repository
 variable per line of that config:
 
 | Variable | From the config |
@@ -258,9 +274,8 @@ variable per line of that config:
 Put them under *Variables* rather than *Secrets*: they are public either
 way, and a secret is masked in the build log, which only makes trouble
 harder to read. The build reads both lists, so nothing breaks if they went
-into the wrong one. If you would rather not use the repository settings at
-all, paste the same values into the `FALLBACK` block at the top of
-`app/src/lib/firebase.ts` instead.
+into the wrong one. Hosting the app somewhere else means adding them again
+in that dashboard, which is the one thing `connect:firebase` saves you.
 
 **Publish the rules**, once:
 
@@ -462,10 +477,11 @@ npm install
 npm run dev          # http://localhost:5173
 npm test             # 85 unit tests over the money engine
 npm run build        # production build into app/dist
-npm run check:firebase   # asks the real project whether it is ready
+npm run connect:firebase # point it at a Firebase project, once
+npm run check:firebase   # ask that project whether it is ready
 ```
 
-A build with no `VITE_FB_*` values warns and carries on, so the layout
+A build with no Firebase config at all warns and carries on, so the layout
 checks and a quick look at the screens still work; the same build on
 Vercel or Netlify stops instead.
 
@@ -502,8 +518,9 @@ app/src/
   styles/           tokens, base (real px), app (design px)
 
 app/scripts/
-  check-firebase.mjs  is the real project ready? (no emulator needed)
-  check-cloud.mjs     drives the app against the emulators end to end
-  check-layout.mjs    every screen on four phone sizes
-  make-icons.mjs      the home-screen icons from the logo
+  connect-firebase.mjs  writes a config into .env and firebase.ts
+  check-firebase.mjs    is the real project ready? (no emulator needed)
+  check-cloud.mjs       drives the app against the emulators end to end
+  check-layout.mjs      every screen on four phone sizes
+  make-icons.mjs        the home-screen icons from the logo
 ```

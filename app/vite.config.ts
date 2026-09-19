@@ -1,4 +1,5 @@
 import { execSync } from 'node:child_process'
+import { readFileSync } from 'node:fs'
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
@@ -36,12 +37,31 @@ const FB_KEYS = [
 ]
 
 function firebaseConfigCheck() {
+  // What Vite resolved, which is the environment plus any .env file — the
+  // same values the app itself will see.
+  let env: Record<string, string> = {}
+
   return {
     name: 'byuma:firebase-config',
     apply: 'build' as const,
+    configResolved(resolved: { env: Record<string, string> }) {
+      env = resolved.env
+    },
     buildStart() {
-      if (process.env.VITE_FB_EMULATOR) return
-      const missing = FB_KEYS.filter((k) => !process.env[k])
+      if (env.VITE_FB_EMULATOR || process.env.VITE_FB_EMULATOR) return
+
+      // The config can arrive two ways, and either is enough: the variables
+      // above, or the FALLBACK block pasted into src/lib/firebase.ts, which
+      // is the path `npm run connect:firebase` takes.
+      try {
+        const src = readFileSync(new URL('./src/lib/firebase.ts', import.meta.url), 'utf8')
+        const block = src.match(/const FALLBACK[\s\S]*?\n\}/)?.[0]
+        if (block && !block.includes('PASTE_')) return
+      } catch {
+        // No source to read — fall through to the variables.
+      }
+
+      const missing = FB_KEYS.filter((k) => !env[k] && !process.env[k])
       if (!missing.length) return
 
       // Vercel names itself in the build environment; so does Netlify.
@@ -53,7 +73,8 @@ function firebaseConfigCheck() {
         '',
         `  Firebase config missing: ${missing.join(', ')}`,
         '  Built like this, the app cannot sign anyone in or save anything.',
-        `  Add the values at ${where}.`,
+        `  Add the values at ${where},`,
+        '  or run: npm run connect:firebase',
         '',
       ].join('\n')
 
