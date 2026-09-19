@@ -35,19 +35,33 @@ export function readConfig(text) {
 }
 
 /** Only read stdin when something was really piped in — waiting on a
- *  terminal, or on no terminal at all, hangs the whole script. */
-async function piped() {
-  let ok = false
+ *  terminal, or on no terminal at all, hangs the whole script. A shell pipe
+ *  is a FIFO; the pipe another Node process hands us is a socket; a
+ *  redirected file is a file. Whichever it is, give up after two quiet
+ *  seconds rather than wait on a pipe nobody will ever write to. */
+function piped() {
+  let s
   try {
-    const s = fstatSync(0)
-    ok = s.isFIFO() || s.isFile()
+    s = fstatSync(0)
   } catch {
-    return ''
+    return Promise.resolve('')
   }
-  if (!ok) return ''
-  let text = ''
-  for await (const chunk of process.stdin) text += chunk
-  return text
+  if (!(s.isFIFO() || s.isFile() || s.isSocket())) return Promise.resolve('')
+  return new Promise((resolve) => {
+    let text = ''
+    const done = () => {
+      clearTimeout(quiet)
+      resolve(text)
+    }
+    const quiet = setTimeout(() => {
+      if (!text) process.stdin.destroy()
+    }, 2000)
+    process.stdin.setEncoding('utf8')
+    process.stdin.on('data', (chunk) => (text += chunk))
+    process.stdin.on('end', done)
+    process.stdin.on('close', done)
+    process.stdin.on('error', done)
+  })
 }
 
 async function file(name) {

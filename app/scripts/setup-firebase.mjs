@@ -90,13 +90,18 @@ const projects = Array.isArray(list.result) ? list.result : []
 const named = (p) => `${p.projectId}${p.displayName ? `  (${p.displayName})` : ''}`
 let id = ''
 
-if (wanted && projects.some((p) => p.projectId === wanted)) {
+// A project made moments ago is missing from the listing for a while, so a
+// named one is also asked for directly before anyone tries to create it.
+const reachable = (pid) => ask(['apps:list', 'WEB', '--project', pid]).ok
+
+if (wanted && (projects.some((p) => p.projectId === wanted) || reachable(wanted))) {
   id = wanted
 } else if (!wanted && projects.length === 1) {
   id = projects[0].projectId
 } else if (!wanted && projects.length > 1) {
-  // More than one: use the one that is obviously ours, or ask.
-  const ours = projects.filter((p) => /byuma/i.test(p.projectId + ' ' + (p.displayName || '')))
+  // More than one: use the one that is obviously ours, or ask. "Byuma" on
+  // its own is not enough — the same account hosts other Byuma things.
+  const ours = projects.filter((p) => /byuma[-_ ]?ft/i.test(p.projectId + ' ' + (p.displayName || '')))
   if (ours.length === 1) id = ours[0].projectId
   else
     stop(
@@ -115,9 +120,15 @@ if (!id) {
   say(`  No project for this app yet — creating ${fresh}.`)
   say()
   const made = firebase(['projects:create', fresh, '--display-name', 'Byuma FT'], { inherit: true })
-  list = ask(['projects:list'])
-  const found = (list.result || []).find((p) => p.projectId === fresh)
-  if (made.status !== 0 || !found)
+  // The listing lags a fresh project by a few seconds, so a clean exit from
+  // the CLI is the real answer; the list is only asked again for the record.
+  let found = made.status === 0
+  for (let i = 0; !found && i < 5; i++) {
+    await new Promise((r) => setTimeout(r, 3000))
+    list = ask(['projects:list'])
+    found = (list.result || []).some((p) => p.projectId === fresh)
+  }
+  if (!found)
     stop(
       'Google would not create it from here. The usual reason is a first',
       'Firebase project needing the terms accepted in a browser — make it at',
