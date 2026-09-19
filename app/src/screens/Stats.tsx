@@ -1,17 +1,18 @@
 import { useEffect, useRef, useState } from 'react'
 import type { App } from '../useApp'
 import {
+  accountBalance,
   amountIn,
   DAY,
   sumFrom,
   dayOffset,
   dayStamp,
-  monthIndex,
+  monthItems,
   sumIn,
   topCategories,
 } from '../lib/calc'
 import { MINUS } from '../lib/money'
-import { ChevronRight, WarnIcon } from '../components/icons'
+import { ChevronRight, MICON, WarnIcon } from '../components/icons'
 import { ACCENT, ChipScroller, DANGER, HideEye, VIOLET, pick } from '../components/ui'
 import { mixColour } from './Home'
 
@@ -34,9 +35,8 @@ export function CurrencyTabs({ app, flush }: { app: App; flush?: boolean }) {
 }
 
 export function Stats({ app }: { app: App }) {
-  const { data, activeCur, balance, plansOff, safetyOff, incomeIn, spend, mainCur } = app
+  const { data, activeCur, balance, plansOff, safetyOff, incomeIn, spend, mainCur, selCurs } = app
   const rates = data.rates
-  const items = data.items
 
   // Last months: the design's bars, or a line that records every single day.
   const [monthsView, setMonthsView] = useState<'bars' | 'graph'>('bars')
@@ -58,17 +58,18 @@ export function Stats({ app }: { app: App }) {
       : []),
   ]
 
-  const thisMonth = monthIndex(Date.now())
-  const monthTotal = sumIn(
-    rates,
-    items.filter((i) => monthIndex(i.at) === thisMonth),
-    mainCur,
-  )
+  // Totals leave out any phase kept off the books; the day strips below
+  // draw everything.
+  const counted = app.counted
+  const month = monthItems(counted)
+  const monthTotal = sumIn(rates, month, mainCur)
+  const total = sumIn(rates, counted, mainCur) || 1
 
-  const total = sumIn(rates, items, mainCur) || 1
-
-  const cats = topCategories(rates, items, mainCur, (i) => i.note || app.accName(i.acc))
+  const cats = topCategories(rates, counted, mainCur, (i) => i.note || app.methodName(i.method))
   const catMax = cats.length ? cats[0].value : 1
+
+  const byAccount = data.settings.balanceBy === 'account' && data.balancesAt > 0
+  const checkups = data.checkups.slice(0, 6)
 
   return (
     <div className="page">
@@ -127,37 +128,93 @@ export function Stats({ app }: { app: App }) {
             Plans
             <ChevronRight />
           </button>
+          <span className="card-footer-divider" />
+          <button type="button" className="card-footer-btn" onClick={app.goPhases}>
+            Phases
+            <ChevronRight />
+          </button>
         </div>
-        {app.pro && (
-          <div className="card-footer">
-            <button type="button" className="card-footer-btn" onClick={app.goPhases}>
-              Phases
-              <ChevronRight />
-            </button>
-          </div>
-        )}
       </div>
+
+      {/* ---------------- where the money is ---------------- */}
+      {byAccount && (
+        <>
+          <div className="section-label">Where the money is</div>
+          <div className="card-list">
+            {data.accounts.map((a) => {
+              const Icon = MICON[a.kind]
+              const held = accountBalance(rates, data.balances, a.id, selCurs, activeCur)
+              return (
+                <div className="acc-line" key={a.id}>
+                  <span className="acc-tile">
+                    <Icon />
+                  </span>
+                  <span className="acc-line-name">{a.name}</span>
+                  <span className="acc-line-sum">{m(app.fmtIn(held, activeCur))}</span>
+                </div>
+              )
+            })}
+            <div className="helper" style={{ margin: '10px 0 4px' }}>
+              As of the last check-up. Spending since comes off the total above.
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* ---------------- check-ups ---------------- */}
+      {checkups.length > 0 && (
+        <>
+          <div className="section-label">Check-ups</div>
+          <div className="card-list">
+            {checkups.map((c) => {
+              const moved = selCurs.filter((cur) => Math.round(c.diff[cur] ?? 0) !== 0)
+              return (
+                <div className="checkup-row" key={c.id}>
+                  <span className="checkup-date">{dayStamp(c.at)}</span>
+                  <span className="checkup-diff">
+                    {moved.length === 0
+                      ? 'matched the records'
+                      : moved.map((cur) => (
+                          <span
+                            key={cur}
+                            className="checkup-amt"
+                            style={{ color: c.diff[cur] > 0 ? '#1f7a5c' : DANGER }}
+                          >
+                            {(c.diff[cur] > 0 ? '+' : MINUS) +
+                              app.fmtIn(Math.abs(c.diff[cur]), cur)}
+                          </span>
+                        ))}
+                  </span>
+                </div>
+              )
+            })}
+            <div className="helper" style={{ margin: '10px 0 4px' }}>
+              What moved without a record: minus is unrecorded spending, plus is money that came in.
+            </div>
+          </div>
+        </>
+      )}
 
       {/* ---------------- this month ---------------- */}
       <div className="card card-month">
         <div className="label-eye">
-          <span className="label-sm">This month</span>
+          <span className="label-sm">Spent this month</span>
           <HideEye hidden={hideMonth} onToggle={() => app.setSetting('hideMonth')} />
         </div>
         <div className="figure-42">{hideMonth ? '••••••' : app.fmt(monthTotal)}</div>
       </div>
 
-      {/* ---------------- where it came from ---------------- */}
-      <div className="section-label">Where it came from</div>
+      {/* ---------------- how it was paid ---------------- */}
+      <div className="section-label">How it was paid</div>
       <div className="card-list">
-        {app.accounts.map((a, ix) => {
-          const v = sumFrom(rates, items, a.id, mainCur)
+        {app.methods.map((mt, ix) => {
+          const v = sumFrom(rates, counted, mt, mainCur)
           const pct = Math.round((v / total) * 100) + '%'
           return (
-            <div className="paid-row" key={a.id}>
+            <div className="paid-row" key={mt}>
               <div className="paid-head">
                 <span className="dot-9" style={{ background: mixColour(ix) }} />
-                <span className="paid-label">{a.name}</span>
+                <span className="paid-label">{app.methodName(mt)}</span>
                 <span className="paid-sum">{app.fmt(v)}</span>
                 <span className="paid-pct">{pct}</span>
               </div>

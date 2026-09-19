@@ -1,8 +1,7 @@
-import { useRef } from 'react'
 import type { App } from '../useApp'
 import { today } from '../useApp'
-import type { Expense, Phase } from '../types'
-import { amountIn, byDay, phaseHas, phaseItems, shortDate, sortPhases, sumIn } from '../lib/calc'
+import type { Expense } from '../types'
+import { amountIn, byDay, periods, phaseDays, shortDate, sumIn, type Period } from '../lib/calc'
 import { groupTyped, sanitizeAmount } from '../lib/money'
 import {
   BinIcon,
@@ -13,33 +12,24 @@ import {
 } from '../components/icons'
 import { ACCENT, ChipScroller, DANGER, FormError, LINE, pick } from '../components/ui'
 
-/** How long a finger rests on a row before it counts as holding it. */
-const HOLD_MS = 450
-
 /**
- * Everything recorded, newest first, grouped by day. Lifted off the recorder
- * so that screen is only about capturing an expense in a few seconds; reading
- * back over the week is a different job and now has its own tab.
+ * Everything recorded, newest first, cut into periods: a phase takes the
+ * expenses recorded while it ran, and the months take the rest. The strip
+ * along the top picks one period to read; a phase being read shows what it
+ * spans and holds, and can be ended from there. "Start a phase" opens a
+ * one-line form, and from then on new expenses fall into it.
  *
- * Tapping a row opens the editor beneath it - amount, note, details, method
- * and the day it happened. The cross deletes, and always asks first.
- *
- * With Pro, phases live along the top: a strip of names that filters the
- * list, a card that sums the one being read, and two ways to make one —
- * hold the first expense of a run and tap its last, or pick expenses into
- * a phase that already exists.
+ * Tapping a row opens the editor beneath it - amount, note, details, how it
+ * was paid and the day it happened. The cross deletes, and always asks first.
  */
 export function History({ app }: { app: App }) {
   const { data, mainCur } = app
   const items = data.items
   const rates = data.rates
-  const phases = app.pro ? sortPhases(data.phases) : []
-  const current = phases.find((p) => p.id === app.histPhase) ?? null
-  const picking = app.pickFor ? data.phases.find((p) => p.id === app.pickFor) ?? null : null
-
-  // Picking shows everything, so what is outside the phase can be reached;
-  // reading a phase shows only what is in it.
-  const listed = current && !picking ? phaseItems(items, current) : items
+  const all = periods(items, data.phases)
+  const current = all.find((p) => p.key === app.histPeriod) ?? null
+  const running = data.phases.find((p) => !p.to) ?? null
+  const listed = current ? current.items : items
   const groups = byDay(listed)
 
   if (items.length === 0) {
@@ -66,177 +56,145 @@ export function History({ app }: { app: App }) {
     )
   }
 
-  const selecting = !!app.selStart
-  const named = app.selIds.length > 0
-
   return (
     <div className="page">
-      {app.pro && (
-        <ChipScroller className="phase-strip">
+      <ChipScroller className="phase-strip">
+        <button
+          type="button"
+          className="phase-chip"
+          style={pick(!current, '#fff', '#4b4f5e')}
+          onClick={() => app.setHistPeriod(null)}
+        >
+          All
+        </button>
+        {all.map((p) => (
           <button
+            key={p.key}
             type="button"
             className="phase-chip"
-            style={pick(!current, '#fff', '#4b4f5e')}
-            onClick={() => app.setHistPhase(null)}
+            style={pick(current?.key === p.key, '#fff', '#4b4f5e')}
+            onClick={() => app.setHistPeriod(current?.key === p.key ? null : p.key)}
           >
-            All
+            {p.phase && !p.phase.to && <span className="phase-live" />}
+            {p.label}
           </button>
-          {phases.map((p) => (
-            <button
-              key={p.id}
-              type="button"
-              className="phase-chip"
-              style={pick(current?.id === p.id, '#fff', '#4b4f5e')}
-              onClick={() => app.setHistPhase(current?.id === p.id ? null : p.id)}
-            >
-              {p.name}
-            </button>
-          ))}
-          {phases.length === 0 && !selecting && (
-            <span className="phase-hint">Hold an expense, tap the last one</span>
-          )}
-        </ChipScroller>
-      )}
-
-      {/* The run being drawn: first a word of what to do, then the name. */}
-      {selecting && (
-        <div className="sel-bar">
-          {!named ? (
-            <>
-              <span className="sel-text">Now tap the last one</span>
-              <button type="button" className="sel-cancel" onClick={app.cancelSelect}>
-                Cancel
-              </button>
-            </>
-          ) : (
-            <>
-              <input
-                className="sel-name"
-                type="text"
-                placeholder="Name the phase"
-                autoFocus
-                value={app.selName}
-                onChange={(e) => {
-                  app.setSelName(e.target.value)
-                  app.clearErr()
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') app.savePhaseFromSelection()
-                }}
-                style={{ borderColor: app.errField === 'selname' ? DANGER : LINE }}
-              />
-              <button type="button" className="sel-cancel" onClick={app.cancelSelect}>
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="sel-save"
-                style={{ background: ACCENT }}
-                onClick={app.savePhaseFromSelection}
-              >
-                Save
-              </button>
-            </>
-          )}
-        </div>
-      )}
-      {selecting && named && (
-        <FormError message={app.errField === 'selname' ? app.formError : ''} />
-      )}
-
-      {/* Picking expenses into a phase from outside its dates. */}
-      {picking && (
-        <div className="sel-bar">
-          <span className="sel-text">
-            {app.picked.length
-              ? app.picked.length + ' to add to ' + picking.name
-              : 'Tap what belongs in ' + picking.name}
-          </span>
-          <button type="button" className="sel-cancel" onClick={app.cancelSelect}>
-            Cancel
-          </button>
+        ))}
+        {!running && app.newPhase === null && (
           <button
             type="button"
-            className="sel-save"
-            style={{ background: ACCENT }}
-            onClick={app.savePick}
+            className="phase-chip phase-chip-add"
+            onClick={() => app.setNewPhase('')}
           >
-            Add
+            ＋ Start a phase
           </button>
-        </div>
+        )}
+      </ChipScroller>
+
+      {/* Naming the phase that starts today. */}
+      {app.newPhase !== null && (
+        <>
+          <div className="sel-bar">
+            <input
+              className="sel-name"
+              type="text"
+              placeholder="Name it — Rwanda, Back home…"
+              autoFocus
+              value={app.newPhase}
+              onChange={(e) => {
+                app.setNewPhase(e.target.value)
+                app.clearErr()
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') app.startPhase()
+              }}
+              style={{ borderColor: app.errField === 'newphase' ? DANGER : LINE }}
+            />
+            <button type="button" className="sel-cancel" onClick={() => app.setNewPhase(null)}>
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="sel-save"
+              style={{ background: ACCENT }}
+              onClick={app.startPhase}
+            >
+              Start
+            </button>
+          </div>
+          <FormError message={app.errField === 'newphase' ? app.formError : ''} />
+        </>
       )}
 
-      {current && !picking && !selecting && (
-        <PhaseCard app={app} phase={current} count={listed.length} />
-      )}
-
-      {!current && !selecting && !picking && (
+      {current?.phase ? (
+        <PhaseCard app={app} period={current} />
+      ) : (
         <div className="hist-head">
-          <span className="label-sm">All expenses</span>
+          <span className="label-sm">{current ? current.label : 'All expenses'}</span>
           <span className="hist-count">
-            {items.length === 1 ? '1 expense' : items.length + ' expenses'}
+            {listed.length === 1 ? '1 expense' : listed.length + ' expenses'}
           </span>
         </div>
       )}
 
-      {listed.length === 0 ? (
-        <div className="helper mt-14">Nothing in this phase yet.</div>
-      ) : (
-        <div className="timeline timeline-top">
-          {groups.map((g) => (
-            <div className="tl-group" key={g.off}>
-              <span className="tl-rule" />
-              <span
-                className="tl-dot"
-                style={{ background: g.off === 0 ? ACCENT : 'rgba(20,22,31,.22)' }}
-              />
-              <div className="tl-head">
-                <span className="tl-day">{g.label}</span>
-                <span className="tl-sum">{app.fmt(sumIn(rates, g.items, mainCur))}</span>
-              </div>
-              <div className="tl-card">
-                {g.items.map((item, ix) => (
-                  <Row
-                    key={item.id}
-                    app={app}
-                    item={item}
-                    first={ix === 0}
-                    phase={current}
-                    picking={picking}
-                  />
-                ))}
-              </div>
+      <div className="timeline timeline-top">
+        {groups.map((g) => (
+          <div className="tl-group" key={g.off}>
+            <span className="tl-rule" />
+            <span
+              className="tl-dot"
+              style={{ background: g.off === 0 ? ACCENT : 'rgba(20,22,31,.22)' }}
+            />
+            <div className="tl-head">
+              <span className="tl-day">{g.label}</span>
+              <span className="tl-sum">{app.fmt(sumIn(rates, g.items, mainCur))}</span>
             </div>
-          ))}
-        </div>
-      )}
+            <div className="tl-card">
+              {g.items.map((item, ix) => (
+                <Row key={item.id} app={app} item={item} first={ix === 0} />
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
 
-/** The phase being read: what it spans, what it holds, and its two doors. */
-function PhaseCard({ app, phase, count }: { app: App; phase: Phase; count: number }) {
+/** The phase being read: what it spans, what it holds, and its doors. */
+function PhaseCard({ app, period }: { app: App; period: Period }) {
   const { data, mainCur } = app
-  const spent = sumIn(data.rates, phaseItems(data.items, phase), mainCur)
+  const ph = period.phase!
+  const spent = sumIn(data.rates, period.items, mainCur)
+  const days = phaseDays(ph)
   return (
     <div className="phase-card">
       <div className="phase-card-top">
-        <span className="phase-card-name">{phase.name}</span>
+        <span className="phase-card-name">
+          {ph.name}
+          {ph.offBooks && <span className="phase-tag">out of totals</span>}
+        </span>
         <span className="phase-card-dates">
-          {shortDate(phase.from)} — {phase.to ? shortDate(phase.to) : 'now'}
+          {shortDate(ph.from)} — {ph.to ? shortDate(ph.to) : 'now'} · {days}{' '}
+          {days === 1 ? 'day' : 'days'}
         </span>
       </div>
       <div className="phase-card-figures">
         <span className="phase-card-sum">{app.fmt(spent)}</span>
         <span className="phase-card-count">
-          {count === 1 ? '1 expense' : count + ' expenses'}
+          {period.items.length === 1 ? '1 expense' : period.items.length + ' expenses'}
         </span>
       </div>
       <div className="phase-card-actions">
-        <button type="button" className="phase-card-btn" onClick={() => app.startPick(phase)}>
-          ＋ Add missed
-        </button>
-        <button type="button" className="phase-card-btn" onClick={() => app.openPhase(phase.id, 'history')}>
+        {!ph.to && (
+          <button type="button" className="phase-card-btn" onClick={() => app.endPhase(ph)}>
+            End today
+          </button>
+        )}
+        <button
+          type="button"
+          className="phase-card-btn"
+          onClick={() => app.openPhase(ph.id, 'history')}
+        >
           Details
           <ChevronRight size={12} color="#9497a5" />
         </button>
@@ -245,110 +203,35 @@ function PhaseCard({ app, phase, count }: { app: App; phase: Phase; count: numbe
   )
 }
 
-function Row({
-  app,
-  item,
-  first,
-  phase,
-  picking,
-}: {
-  app: App
-  item: Expense
-  first: boolean
-  phase: Phase | null
-  picking: Phase | null
-}) {
-  const Icon = MICON[app.accKind(item.acc)]
+function Row({ app, item, first }: { app: App; item: Expense; first: boolean }) {
+  const Icon = MICON[item.method]
   const editing = app.editId === item.id
   const shown = amountIn(app.data.rates, item, app.mainCur)
 
-  // Holding a row is the start of a phase. A timer decides what "holding"
-  // is; lifting or moving the finger before it fires makes it a tap.
-  const hold = useRef<number | undefined>(undefined)
-  const held = useRef(false)
-  const down = () => {
-    if (!app.pro || app.pickFor) return
-    held.current = false
-    window.clearTimeout(hold.current)
-    hold.current = window.setTimeout(() => {
-      held.current = true
-      app.startSelect(item.id)
-    }, HOLD_MS)
-  }
-  const up = () => window.clearTimeout(hold.current)
-  const tap = () => {
-    if (held.current) {
-      held.current = false
-      return
-    }
-    app.tapRow(item)
-  }
-
-  const isStart = app.selStart === item.id
-  const inRun = app.selIds.includes(item.id)
-  const alreadyIn = picking ? phaseHas(picking, item) : false
-  const isPicked = app.picked.includes(item.id)
-  const byHand = !!phase?.items?.includes(item.id)
-
-  let cls = 'tl-row'
-  if (isStart || inRun || isPicked) cls += ' tl-row-picked'
-  if (picking && alreadyIn) cls += ' tl-row-dim'
-
   return (
     <div style={{ borderTop: first ? '1px solid transparent' : '1px solid rgba(20,22,31,.055)' }}>
-      <div
-        className={cls}
-        onPointerDown={down}
-        onPointerUp={up}
-        onPointerCancel={up}
-        onPointerLeave={up}
-        onContextMenu={(e) => e.preventDefault()}
-        onClick={picking && alreadyIn ? undefined : tap}
-      >
+      <div className="tl-row" onClick={() => app.openEditor(item)}>
         <span
           className="tl-tile"
           style={{
-            background:
-              isStart || inRun || isPicked
-                ? ACCENT
-                : app.accKind(item.acc) === 'cash'
-                  ? 'rgba(20,22,31,.05)'
-                  : 'rgba(20,22,31,.08)',
-            color: isStart || inRun || isPicked ? '#fff' : undefined,
+            background: item.method === 'cash' ? 'rgba(20,22,31,.05)' : 'rgba(20,22,31,.08)',
           }}
         >
           <Icon />
         </span>
-        <span className="tl-note">{item.note || app.accName(item.acc)}</span>
+        <span className="tl-note">{item.note || app.methodName(item.method)}</span>
         <span className="tl-amount">{app.fmt(shown)}</span>
-        {byHand && !picking && !app.selStart ? (
-          <button
-            type="button"
-            className="x-btn"
-            aria-label={'Take out of ' + phase!.name}
-            onClick={(e) => {
-              e.stopPropagation()
-              app.unpickFrom(phase!, item.id)
-            }}
-          >
-            <CrossIcon />
-          </button>
-        ) : (
-          !picking &&
-          !app.selStart && (
-            <button
-              type="button"
-              className="x-btn"
-              aria-label="Delete"
-              onClick={(e) => {
-                e.stopPropagation()
-                app.askDelete(item)
-              }}
-            >
-              <CrossIcon />
-            </button>
-          )
-        )}
+        <button
+          type="button"
+          className="x-btn"
+          aria-label="Delete"
+          onClick={(e) => {
+            e.stopPropagation()
+            app.askDelete(item)
+          }}
+        >
+          <CrossIcon />
+        </button>
       </div>
 
       {editing && (
@@ -387,22 +270,20 @@ function Row({
               onChange={(e) => app.setEDate(e.target.value)}
             />
           </div>
-          {/* Moving an expense to another account moves the money with
-              it: the whole amount goes back where it was and comes out of
-              the new one. A hidden account stays offered here for the
-              expense that is already on it. */}
+          {/* How it was paid. A way kept off the recorder is still offered
+              here for the expense that was already paid that way. */}
           <div className="editor-methods">
-            {app.accounts
-              .filter((a) => !a.hidden || a.id === item.acc)
-              .map((a) => (
+            {(['cash', 'bank', 'momo'] as const)
+              .filter((m) => app.methods.includes(m) || m === item.method)
+              .map((m) => (
                 <button
-                  key={a.id}
+                  key={m}
                   type="button"
                   className="editor-method"
-                  style={pick(app.eAcc === a.id)}
-                  onClick={() => app.setEAcc(a.id)}
+                  style={pick(app.eMethod === m)}
+                  onClick={() => app.setEMethod(m)}
                 >
-                  {a.name}
+                  {app.methodName(m)}
                 </button>
               ))}
           </div>

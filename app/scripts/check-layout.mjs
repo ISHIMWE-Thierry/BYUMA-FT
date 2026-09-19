@@ -126,11 +126,20 @@ for (const device of DEVICES) {
   await page.click('.tab >> text="Home"')
   await page.waitForSelector('.recorder')
 
-  // 2.1 Record an expense — the amount is typed on the phone's own keyboard
+  // 2.1 Record an expense — the amount is typed on the phone's own keyboard.
+  // While it is, the tab bar steps out of the way so the keyboard cannot
+  // cover the ways of paying; it is back once a way of paying is tapped.
   await page.click('.amount-display')
   await page.fill('input[aria-label="Amount"]', '2400')
+  await page.waitForTimeout(150)
+  await shoot(page, device, '2.1-amount')
+  if ((await page.locator('.tabbar').count()) !== 0) {
+    failures++
+    console.log('  ✗ the tab bar stays up while the amount is typed')
+  }
   await page.click('.method-btn >> text=Bank')
   await page.click('.chip >> text=Groceries')
+  await page.waitForSelector('.tabbar', { timeout: 3000 })
   await shoot(page, device, '2.1-typing')
   await page.click('.cta')
   await page.waitForTimeout(300)
@@ -249,56 +258,49 @@ for (const device of DEVICES) {
   await shoot(page, device, '2.2-categories')
   await page.click('button[aria-label="Back"]')
 
-  // 6.1 Pro: its tour, the accounts it names, and a phase read on its own
-  await page.click('.tab >> text="Account"')
-  await page.waitForSelector('text=Pro features')
-  await page.click('[aria-label="Pro features"]')
-  await page.waitForSelector('.tour-slide', { timeout: 8000 })
-  await page.waitForTimeout(700)
-  await shoot(page, device, '6.1-pro-tour')
-  await page.click('text=Done')
-  await page.waitForSelector('text=Pro features')
-
-  await page.click('.row-btn >> text=Accounts')
-  await page.waitForSelector('text=＋ Add an account', { timeout: 8000 })
-  await page.click('text=＋ Add an account')
-  await page.fill('input[placeholder="What is it? Ziraat, Albaraka…"]', 'Ziraat')
-  await shoot(page, device, '6.2-account-form')
-  await page.click('text=Add account')
-  await page.waitForTimeout(300)
-  await shoot(page, device, '6.2-accounts')
-  await page.click('button[aria-label="Back"]')
-  await page.waitForSelector('.tabbar')
-
-  // balance is asked per account now
+  // 6.1 Accounts, on the Balance screen: name one, then the balance by currency
   await page.click('.tab >> text="Analytics"')
   await page.waitForSelector('text=Where the money went')
   await page.click('text=Update balance')
   await page.waitForSelector('text=What do you have now?')
-  await shoot(page, device, '6.3-balance-per-account')
-  await page.click('button[aria-label="Back"]')
-  await page.waitForSelector('text=Where the money went', { timeout: 8000 })
+  await page.click('.pick-chip >> text=Add an account')
+  await page.fill('input[placeholder="What is it? Ziraat, Albaraka…"]', 'Ziraat')
+  await shoot(page, device, '6.1-account-form')
+  await page.click('text=Add account')
+  await page.waitForTimeout(300)
+  await shoot(page, device, '6.1-balance-accounts')
+  await page.click('.mode-seg .seg-btn >> text=By currency')
+  await page.waitForSelector('input[aria-label="Total RWF total"]', { timeout: 8000 })
+  await shoot(page, device, '6.2-balance-by-currency')
+  await page.click('.mode-seg .seg-btn >> text=By account')
+  await page.waitForSelector('input[aria-label="Cash RWF total"]', { timeout: 8000 })
+  // A second check-up, lower than the records expect: the gap is kept.
+  await page.fill('input[aria-label="Cash RWF total"]', '800000')
+  await page.click('.btn-save')
+  await page.waitForSelector('text=Check-ups', { timeout: 8000 })
+  await shoot(page, device, '6.3-stats-checkups')
 
-  await page.click('.card-footer-btn >> text=Phases')
-  await page.waitForSelector('text=＋ Add a phase', { timeout: 8000 })
-  await page.click('text=＋ Add a phase')
-  await page.fill('input[placeholder="What was it? Rwanda, Back in Türkiye…"]', 'Rwanda')
-  await page.fill('input[aria-label="Phase start"]', '2020-01-01')
-  await shoot(page, device, '6.4-phase-form')
-  await page.click('text=Add phase')
-  await page.waitForSelector('.plan-row', { timeout: 8000 })
-  await shoot(page, device, '6.4-phases')
-  await page.click('.plan-row >> text=Rwanda')
+  // 6.4 A phase started from History, and read on its own
+  await page.click('.tab >> text="History"')
+  await page.waitForSelector('.phase-strip', { timeout: 8000 })
+  await page.click('.phase-chip-add')
+  await page.fill('.sel-name', 'Rwanda')
+  await shoot(page, device, '6.4-phase-start')
+  await page.click('.sel-save')
+  await page.waitForSelector('.phase-card', { timeout: 8000 })
+  await shoot(page, device, '6.4-history-phase')
+  await page.click('.phase-card-btn >> text=Details')
   await page.waitForSelector('text=Spent in this phase', { timeout: 8000 })
   await shoot(page, device, '6.5-phase')
   await page.click('button[aria-label="Back"]')
-  await page.waitForSelector('text=＋ Add a phase', { timeout: 8000 })
-  // A second back lands on Home, which is where a step-in screen returns
-  // to once its own trail has been walked.
-  await page.click('button[aria-label="Back"]')
-  await page.waitForSelector('.tabbar', { timeout: 8000 })
+  await page.waitForSelector('.phase-strip', { timeout: 8000 })
+
+  // 6.6 Ways of paying and reminders, in Profile
   await page.click('.tab >> text="Account"')
-  await page.waitForSelector('text=Pro features')
+  await page.waitForSelector('text=Ways of paying')
+  await page.click('button[aria-label="Hide MoMo"]')
+  await page.waitForTimeout(300)
+  await shoot(page, device, '6.6-profile-methods')
 
   // 5.1 Confirm sheet
   await page.click('text=Sign out')

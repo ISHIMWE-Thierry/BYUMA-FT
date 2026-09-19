@@ -1,4 +1,4 @@
-import type { Expense, Income, Phase, Plan, Prio, Safety } from '../types'
+import type { Expense, Income, Method, Phase, Plan, Prio, Safety, UserData } from '../types'
 import { convert } from './rates'
 
 export const DAY = 864e5
@@ -15,7 +15,8 @@ export const DAY = 864e5
  * and P3 is loose (a fifth). The safety net is what should remain if
  * every plan happened; a person dips into a cushion in real life, so
  * only 70% of it is held back. Expected income is someone else's money
- * until it arrives — it counts only when its switch is on.
+ * until it arrives — it counts only when its switch is on, and once it
+ * has been received it is in the balance itself.
  */
 export const PRIO_TAKE: Record<Prio, number> = { 1: 1, 2: 0.5, 3: 0.2 }
 export const SAFETY_TAKE = 0.7
@@ -47,14 +48,14 @@ export function safetyTake(
   return convert(rates, safety.amt * SAFETY_TAKE, safety.cur, display)
 }
 
-/** Expected income whose switch is on. */
+/** Expected income whose switch is on and which has not arrived yet. */
 export function countedIncome(
   rates: Record<string, number>,
   incomes: Income[],
   display: string,
 ): number {
   return incomes
-    .filter((i) => i.counted)
+    .filter((i) => i.counted && !i.receivedAt)
     .reduce((s, i) => s + convert(rates, i.amt, i.cur, display), 0)
 }
 
@@ -109,15 +110,24 @@ export function intoSafety(
 }
 
 /* ------------------------------------------------------------------
-   The ultimate total.
+   The balance.
+
+   The last check-up is the truth: what each account held, per
+   currency, at that moment. From there the records take over — every
+   expense recorded since comes off, every income received since goes
+   on — so the balance shown is what the records say there should be
+   now. The next check-up replaces it with what there really is, and
+   the gap between the two is the money that moved unrecorded.
 
    Money held in several currencies is one pot, not three. Every total
    is converted at the current rates and added up, then shown in
-   whichever currency is being viewed. The currency tabs pick the
-   currency the single total is expressed in — they do not slice it.
+   whichever currency is being viewed.
 ------------------------------------------------------------------ */
 
-/** What one account holds, every currency added up, expressed in `display`. */
+/** Account id -> currency -> amount, as entered at the last check-up. */
+export type Balances = Record<string, Record<string, number>>
+
+/** What one account held at the last check-up, every currency added up. */
 export function accountBalance(
   rates: Record<string, number>,
   balances: Balances,
@@ -132,71 +142,64 @@ export function accountBalance(
   )
 }
 
+/** What every account together held at the last check-up, in one currency. */
+export function snapshotTotal(balances: Balances, code: string): number {
+  return Object.values(balances).reduce((s, held) => s + (held?.[code] ?? 0), 0)
+}
+
+/** The part of the data the running balance is made from. */
+export type BalanceSource = Pick<
+  UserData,
+  'balances' | 'balancesAt' | 'items' | 'incomes' | 'phases'
+>
+
 /**
- * Everything, everywhere: every account's every currency, added up and
- * expressed in `display`. Money in two places is still one pot.
+ * What the records say one currency stands at now: the check-up total,
+ * less every expense recorded since it, plus every income received since.
+ * Expenses in a phase kept off the books still left the pocket, so they
+ * still count here.
  */
+export function runningBalance(src: BalanceSource, code: string): number {
+  const since = src.balancesAt
+  const spent = src.items
+    .filter((i) => i.cur === code && i.at > since)
+    .reduce((s, i) => s + i.amount, 0)
+  const received = src.incomes
+    .filter((i) => i.cur === code && !!i.receivedAt && i.receivedAt > since)
+    .reduce((s, i) => s + i.amt, 0)
+  return snapshotTotal(src.balances, code) - spent + received
+}
+
+/** Everything, everywhere, as the records have it now, expressed in `display`. */
 export function totalBalance(
   rates: Record<string, number>,
-  balances: Balances,
+  src: BalanceSource,
   codes: string[],
   display: string,
 ): number {
-  return Object.keys(balances).reduce(
-    (sum, acc) => sum + accountBalance(rates, balances, acc, codes, display),
+  return codes.reduce(
+    (sum, code) => sum + convert(rates, runningBalance(src, code), code, display),
     0,
   )
 }
 
-/* ------------------------------------------------------------------
-   Spending draws the balance down.
-
-   An expense lowers the account it came out of, in the currency it was
-   recorded in, and undoing it puts that money back in the same place.
-   "Update balance" is the correction: it replaces the totals with what
-   the person says they really have.
------------------------------------------------------------------- */
-
-/** Account id -> currency -> amount. */
-export type Balances = Record<string, Record<string, number>>
-
-function move(balances: Balances, acc: string, code: string, by: number): Balances {
-  const held = balances[acc] ?? {}
-  return { ...balances, [acc]: { ...held, [code]: (held[code] ?? 0) + by } }
-}
-
-export function applyRecord(balances: Balances, item: Expense): Balances {
-  return move(balances, item.acc, item.cur, -item.amount)
-}
-
-export function applyDelete(balances: Balances, item: Expense): Balances {
-  return move(balances, item.acc, item.cur, item.amount)
-}
-
-/** Only the difference moves, so editing twice does not double-count. */
-export function applyEdit(
-  balances: Balances,
-  item: Expense,
-  nextAmount: number,
-  nextAcc: string = item.acc,
-): Balances {
-  // Moved to another account: the whole amount goes back where it came
-  // from and comes out of the new one.
-  if (nextAcc !== item.acc) {
-    return move(
-      move(balances, item.acc, item.cur, item.amount),
-      nextAcc,
-      item.cur,
-      -nextAmount,
-    )
+/**
+ * A check-up: the totals just entered against what the records expected,
+ * per currency. Plus means more than expected — money came in unrecorded;
+ * minus means spending that was never recorded.
+ */
+export function checkupDiff(
+  src: BalanceSource,
+  entered: Balances,
+  codes: string[],
+): { diff: Record<string, number>; total: Record<string, number> } {
+  const diff: Record<string, number> = {}
+  const total: Record<string, number> = {}
+  for (const code of codes) {
+    total[code] = snapshotTotal(entered, code)
+    diff[code] = total[code] - runningBalance(src, code)
   }
-  return move(balances, item.acc, item.cur, item.amount - nextAmount)
-}
-
-export function applyDeleteAll(balances: Balances, items: Expense[]): Balances {
-  let out = { ...balances }
-  for (const i of items) out = move(out, i.acc, i.cur, i.amount)
-  return out
+  return { diff, total }
 }
 
 /* ------------------------------------------------------------------
@@ -220,16 +223,16 @@ export function sumIn(
   return items.reduce((s, i) => s + amountIn(rates, i, display), 0)
 }
 
-/** What was spent out of one account. */
+/** What was spent one way — cash, bank or MoMo. */
 export function sumFrom(
   rates: Record<string, number>,
   items: Expense[],
-  acc: string,
+  method: Method,
   display: string,
 ): number {
   return sumIn(
     rates,
-    items.filter((i) => i.acc === acc),
+    items.filter((i) => i.method === method),
     display,
   )
 }
@@ -237,10 +240,9 @@ export function sumFrom(
 /* ------------------------------------------------------------------
    Phases: a named stretch of time.
 
-   A phase is drawn around days already lived, so nothing is stamped on
-   an expense — an expense belongs to a phase if its day falls inside
-   it. Move the dates and the expenses follow, which is what lets a
-   phase be named after the fact.
+   Nothing is stamped on an expense — it belongs to a phase if its day
+   falls inside it. Start a phase and what is recorded from then on is
+   in it; end it and the months take over again.
 ------------------------------------------------------------------ */
 
 /** A moment as yyyy-mm-dd in the phone's own timezone. */
@@ -257,13 +259,8 @@ export function inPhase(phase: Phase, at: number): boolean {
   return !phase.to || day <= phase.to
 }
 
-/** By its date, or because it was added to the phase by hand. */
-export function phaseHas(phase: Phase, item: Expense): boolean {
-  return inPhase(phase, item.at) || !!phase.items?.includes(item.id)
-}
-
 export function phaseItems(items: Expense[], phase: Phase): Expense[] {
-  return items.filter((i) => phaseHas(phase, i))
+  return items.filter((i) => inPhase(phase, i.at))
 }
 
 /** The phase a moment falls in. Newest start wins if two overlap. */
@@ -273,6 +270,22 @@ export function phaseAt(phases: Phase[], at: number): Phase | null {
       .filter((p) => inPhase(p, at))
       .sort((a, b) => b.from.localeCompare(a.from))[0] ?? null
   )
+}
+
+/** The phase still running, if there is one. */
+export function runningPhase(phases: Phase[]): Phase | null {
+  return sortPhases(phases).find((p) => !p.to) ?? null
+}
+
+/**
+ * The expenses that count towards the totals: everything except what
+ * fell in a phase kept off the books. The graphs are drawn from all of
+ * them regardless.
+ */
+export function countedItems(items: Expense[], phases: Phase[]): Expense[] {
+  const off = phases.filter((p) => p.offBooks)
+  if (!off.length) return items
+  return items.filter((i) => !off.some((p) => inPhase(p, i.at)))
 }
 
 /** How many days the phase covers, counting both ends, up to today. */
@@ -290,6 +303,105 @@ export function sortPhases(phases: Phase[]): Phase[] {
   })
 }
 
+/* ------------------------------------------------------------------
+   Periods: how History is cut up.
+
+   An expense in a phase belongs to that phase; every other expense
+   belongs to its month. Newest first, so a running phase heads the
+   list and last month sits under this one.
+------------------------------------------------------------------ */
+
+export interface Period {
+  /** The phase's id, or "m:<month index>". */
+  key: string
+  label: string
+  phase: Phase | null
+  items: Expense[]
+}
+
+export function periods(items: Expense[], phases: Phase[]): Period[] {
+  const order: string[] = []
+  const map = new Map<string, Period>()
+  for (const i of items.slice().sort((a, b) => b.at - a.at)) {
+    const ph = phaseAt(phases, i.at)
+    const key = ph ? ph.id : 'm:' + monthIndex(i.at)
+    let p = map.get(key)
+    if (!p) {
+      p = {
+        key,
+        label: ph ? ph.name : monthLabel(monthIndex(i.at)),
+        phase: ph,
+        items: [],
+      }
+      map.set(key, p)
+      order.push(key)
+    }
+    p.items.push(i)
+  }
+  return order.map((k) => map.get(k)!)
+}
+
+/* ------------------------------------------------------------------
+   Reminders: what is due soon.
+------------------------------------------------------------------ */
+
+export interface Due {
+  /** Stable across days for the same thing, so a note is not shown twice. */
+  key: string
+  kind: 'plan' | 'income'
+  name: string
+  amt: number
+  cur: string
+  date: string
+  /** 0 today, 1 tomorrow, 2 the day after. */
+  daysLeft: number
+}
+
+/**
+ * Plans and incomes falling due today or within the next two days. An
+ * income already received is done with; a plan has no such state, so it
+ * keeps reminding until its day has passed.
+ */
+export function dueSoon(
+  plans: Plan[],
+  incomes: Income[],
+  now: number = Date.now(),
+  within = 2,
+): Due[] {
+  const today = dayKey(now)
+  const last = dayKey(now + within * DAY)
+  const out: Due[] = []
+  const left = (date: string) =>
+    Math.round((new Date(date + 'T12:00:00').getTime() - new Date(today + 'T12:00:00').getTime()) / DAY)
+  for (const p of plans) {
+    if (p.date && p.date >= today && p.date <= last)
+      out.push({ key: 'plan:' + p.id, kind: 'plan', name: p.name, amt: p.amt, cur: p.cur, date: p.date, daysLeft: left(p.date) })
+  }
+  for (const i of incomes) {
+    if (!i.receivedAt && i.date && i.date >= today && i.date <= last)
+      out.push({ key: 'income:' + i.id, kind: 'income', name: i.name, amt: i.amt, cur: i.cur, date: i.date, daysLeft: left(i.date) })
+  }
+  return out.sort((a, b) => a.daysLeft - b.daysLeft)
+}
+
+/** "today", "tomorrow", "in 2 days" — or nothing once it is not close. */
+export function dueWord(date: string, now: number = Date.now()): string {
+  if (!date) return ''
+  const today = dayKey(now)
+  if (date < today) return 'past'
+  const n = Math.round(
+    (new Date(date + 'T12:00:00').getTime() - new Date(today + 'T12:00:00').getTime()) / DAY,
+  )
+  if (n === 0) return 'today'
+  if (n === 1) return 'tomorrow'
+  if (n <= 2) return 'in ' + n + ' days'
+  return ''
+}
+
+/* ------------------------------------------------------------------
+   Dates and grouping.
+------------------------------------------------------------------ */
+
 /** Whole days between the expense and today, in the phone's own timezone. */
 export function dayOffset(at: number, now: number = Date.now()): number {
   const a = new Date(at)
@@ -302,6 +414,10 @@ export function dayOffset(at: number, now: number = Date.now()): number {
 const MON = [
   'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
   'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+]
+const MONTH = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
 ]
 
 export function dayLabel(at: number, now: number = Date.now()): string {
@@ -341,6 +457,17 @@ export function monthName(index: number): string {
   return MON[((index % 12) + 12) % 12]
 }
 
+/** "September 2026" from a month index. */
+export function monthLabel(index: number): string {
+  return MONTH[((index % 12) + 12) % 12] + ' ' + Math.floor(index / 12)
+}
+
+/** Only the expenses of the month `now` is in. */
+export function monthItems(items: Expense[], now: number = Date.now()): Expense[] {
+  const m = monthIndex(now)
+  return items.filter((i) => monthIndex(i.at) === m)
+}
+
 /** Group expenses by day, newest first. */
 export function byDay(
   items: Expense[],
@@ -375,7 +502,7 @@ export function topCategories(
     map[k] = (map[k] || 0) + amountIn(rates, i, display)
   }
   return Object.entries(map)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 5)
     .map(([name, value]) => ({ name, value }))
+    .sort((a, b) => b.value - a.value)
+    .slice(0, 5)
 }

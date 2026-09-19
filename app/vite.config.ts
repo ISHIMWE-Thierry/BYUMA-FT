@@ -101,6 +101,11 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
+      // Our own worker (src/sw.ts): the plugin's saved copy of the app,
+      // plus the reminders it shows while the app is closed.
+      strategies: 'injectManifest',
+      srcDir: 'src',
+      filename: 'sw.ts',
       includeAssets: ['favicon.svg', 'icons/*.png', 'fonts/*.woff2'],
       manifest: {
         name: 'Byuma FT',
@@ -118,7 +123,7 @@ export default defineConfig({
           { src: 'icons/icon-512-maskable.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
         ],
       },
-      workbox: {
+      injectManifest: {
         globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
       },
     }),
