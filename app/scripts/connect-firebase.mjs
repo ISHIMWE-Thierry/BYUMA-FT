@@ -20,12 +20,16 @@
  */
 import { readFile, writeFile } from 'node:fs/promises'
 import { spawnSync } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
 import { APP_DIR, FIELDS, args, gather } from './firebase-config.mjs'
 
 const say = (line = '') => console.log(line)
 
+// --no-check is for setup-firebase, which has more to do before the check
+// is worth running.
 const { loose } = args([])
-const config = await gather(loose)
+const noCheck = loose.includes('--no-check')
+const config = await gather(loose.filter((a) => a !== '--no-check'))
 
 const missing = FIELDS.filter((f) => !config[f.js] && f.js !== 'storageBucket')
 if (missing.length) {
@@ -92,7 +96,8 @@ say('  phone, Pages, Vercel — reaches this project.')
 say()
 
 // ── and straight on to whether the project is actually ready ────────────────
-const check = spawnSync(process.execPath, [new URL('check-firebase.mjs', import.meta.url).pathname], {
+if (noCheck) process.exit(0)
+const check = spawnSync(process.execPath, [fileURLToPath(new URL('check-firebase.mjs', import.meta.url))], {
   stdio: 'inherit',
 })
 process.exit(check.status ?? 0)

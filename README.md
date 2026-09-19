@@ -231,7 +231,24 @@ Three things to know:
 
 Only needed once, by whoever publishes the app.
 
-**In the Firebase console** (console.firebase.google.com), in your project:
+**The short way — from your own terminal:**
+
+```
+cd app
+npm run setup:firebase
+```
+
+It signs you in to Google (a browser window opens), finds your Firebase
+project or creates one, adds a web app, writes that app's config into the
+code, publishes the Firestore rules, and ends with the readiness check.
+The two things the command line cannot switch on — the sign-in methods and
+the authorized addresses — it hands you as links to the exact console
+page. Run it again after clicking them and the check turns green; then
+commit and push. If you already have a project, name it:
+`npm run setup:firebase -- your-project-id`.
+
+**The long way — by hand.** In the Firebase console
+(console.firebase.google.com), in your project:
 
 1. **Authentication → Sign-in method → Email/Password → Enable.** Enable
    **Google** in the same place if you want the one-tap sign-in; it asks
@@ -477,8 +494,9 @@ npm install
 npm run dev          # http://localhost:5173
 npm test             # 85 unit tests over the money engine
 npm run build        # production build into app/dist
-npm run connect:firebase # point it at a Firebase project, once
-npm run check:firebase   # ask that project whether it is ready
+npm run setup:firebase   # sign in, find or create the project, connect it
+npm run connect:firebase # just write a config block into the app
+npm run check:firebase   # ask the project whether it is ready
 ```
 
 A build with no Firebase config at all warns and carries on, so the layout
@@ -518,6 +536,7 @@ app/src/
   styles/           tokens, base (real px), app (design px)
 
 app/scripts/
+  setup-firebase.mjs    the whole Firebase setup from your own terminal
   connect-firebase.mjs  writes a config into .env and firebase.ts
   check-firebase.mjs    is the real project ready? (no emulator needed)
   check-cloud.mjs       drives the app against the emulators end to end
