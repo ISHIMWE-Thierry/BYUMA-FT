@@ -18,6 +18,54 @@ try {
 }
 const build = new Date().toISOString().slice(0, 10) + (commit ? ` · ${commit}` : '')
 
+/**
+ * A build with no Firebase config makes an app that cannot reach anybody's
+ * account — it opens on "Not connected yet". That has gone out once already,
+ * because an unset variable is simply an empty string and nothing complained.
+ *
+ * A real deployment is stopped. A build on this machine is only warned: the
+ * layout checks, and anyone who just wants to look at the screens, have no
+ * use for a live project.
+ */
+const FB_KEYS = [
+  'VITE_FB_API_KEY',
+  'VITE_FB_AUTH_DOMAIN',
+  'VITE_FB_PROJECT_ID',
+  'VITE_FB_SENDER_ID',
+  'VITE_FB_APP_ID',
+]
+
+function firebaseConfigCheck() {
+  return {
+    name: 'byuma:firebase-config',
+    apply: 'build' as const,
+    buildStart() {
+      if (process.env.VITE_FB_EMULATOR) return
+      const missing = FB_KEYS.filter((k) => !process.env[k])
+      if (!missing.length) return
+
+      // Vercel names itself in the build environment; so does Netlify.
+      const host = process.env.VERCEL ? 'Vercel' : process.env.NETLIFY ? 'Netlify' : ''
+      const where = host
+        ? `${host} → Settings → Environment Variables`
+        : 'app/.env — see app/.env.example, and README section 5'
+      const note = [
+        '',
+        `  Firebase config missing: ${missing.join(', ')}`,
+        '  Built like this, the app cannot sign anyone in or save anything.',
+        `  Add the values at ${where}.`,
+        '',
+      ].join('\n')
+
+      if (host) {
+        console.error(note)
+        throw new Error(`Refusing to publish a ${host} build with no Firebase config`)
+      }
+      console.warn(note)
+    },
+  }
+}
+
 // The design is authored at a 390px-wide canvas. Every length in the CSS is
 // written with the exact pixel number from the design and converted to rem at
 // build time, with 1rem = 10 design px. The root font-size then scales with the
@@ -28,6 +76,7 @@ export default defineConfig({
     __BUILD__: JSON.stringify(build),
   },
   plugins: [
+    firebaseConfigCheck(),
     react(),
     VitePWA({
       registerType: 'autoUpdate',

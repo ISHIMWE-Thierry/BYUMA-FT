@@ -255,10 +255,11 @@ variable per line of that config:
 | `VITE_FB_SENDER_ID` | `messagingSenderId` |
 | `VITE_FB_APP_ID` | `appId` |
 
-They are *variables*, not secrets, because they are public either way — and
-a secret would be masked in the build log, which only makes trouble harder
-to read. If you would rather not use the repository settings at all, paste
-the same values into the `FALLBACK` block at the top of
+Put them under *Variables* rather than *Secrets*: they are public either
+way, and a secret is masked in the build log, which only makes trouble
+harder to read. The build reads both lists, so nothing breaks if they went
+into the wrong one. If you would rather not use the repository settings at
+all, paste the same values into the `FALLBACK` block at the top of
 `app/src/lib/firebase.ts` instead.
 
 **Publish the rules**, once:
@@ -268,7 +269,23 @@ npx firebase deploy --only firestore:rules
 ```
 
 Until the keys are in place the app cannot reach any account, and says so
-on its own screen rather than failing quietly.
+on its own screen rather than failing quietly. A published build will not
+go out without them at all: the GitHub workflow stops and names the ones it
+is missing, and so does a Vercel build.
+
+**Ask the project whether it is ready.** One command checks the five things
+that stop people signing in or saving — the key, the authorized addresses,
+email sign-in, Google sign-in, and whether Firestore exists with its rules
+published. It signs nobody in and writes nothing:
+
+```
+cd app
+npm run check:firebase -- <apiKey> <projectId>
+```
+
+It also reads `app/.env` if you have one, or the config block straight off
+your clipboard (`pbpaste | npm run check:firebase`). Every failure names the
+console page that fixes it.
 
 **Checking it locally**, without touching the real project:
 
@@ -302,9 +319,16 @@ root directory or a framework by hand.
    add your Vercel address (`something.vercel.app`, plus your own domain
    if you attach one). Sign-in is refused from any address not on that
    list — the app names the address it was refused for, so this is easy
-   to spot.
+   to spot. To confirm it took:
+
+   ```
+   cd app
+   npm run check:firebase -- <apiKey> <projectId> --domain your-app.vercel.app
+   ```
 
 That is all. Vercel rebuilds on every push to `main`, the same as Pages.
+If you skip step 2, the build stops rather than publishing an app that
+cannot reach anyone's account.
 
 **Both links keep working.** GitHub Pages and Vercel are two doors into
 the same Firebase project, so the same email and password show the same
@@ -436,9 +460,14 @@ and sits in the middle of the window.
 cd app
 npm install
 npm run dev          # http://localhost:5173
-npm test             # 56 unit tests over the money engine
+npm test             # 85 unit tests over the money engine
 npm run build        # production build into app/dist
+npm run check:firebase   # asks the real project whether it is ready
 ```
+
+A build with no `VITE_FB_*` values warns and carries on, so the layout
+checks and a quick look at the screens still work; the same build on
+Vercel or Netlify stops instead.
 
 Layout check across all four phones (needs Playwright, which is not a
 project dependency so CI stays fast):
@@ -464,10 +493,17 @@ app/src/
   lib/money.ts      formatting, numpad rules
   lib/rates.ts      the rate table, live FX fetch, conversion
   lib/calc.ts       spendable, the warnings, balance arithmetic, aggregates
-  lib/crypto.ts     PBKDF2 password hashing
+  lib/firebase.ts   the one place Firebase is set up
+  lib/cloud.ts      reading and writing the one document per person
   lib/passkey.ts    unlocking with the phone's own fingerprint/face/PIN
-  lib/storage.ts    accounts, session and per-account data in localStorage
+  lib/storage.ts    the shape of a save, and reading an older one
   useApp.ts         all state and every action
   screens/          one file per group of screens
   styles/           tokens, base (real px), app (design px)
+
+app/scripts/
+  check-firebase.mjs  is the real project ready? (no emulator needed)
+  check-cloud.mjs     drives the app against the emulators end to end
+  check-layout.mjs    every screen on four phone sizes
+  make-icons.mjs      the home-screen icons from the logo
 ```
