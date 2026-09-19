@@ -352,12 +352,17 @@ top folder, signed in to the Vercel account that owns the project:
 npx vercel deploy --prod
 ```
 
-**To make it publish itself on every push to `main`**, the same as GitHub
-Pages does, Vercel has to be allowed to read the repository once: in the
-Vercel dashboard open the project → **Settings → Git → Connect Git
-Repository → GitHub**, and install the Vercel app on the **byumarwanda**
-account that owns the repository. Until then, the command above is how a
-new version gets there.
+**It publishes itself on every push.** Vercel reads the copy of this
+repository at **github.com/ISHIMWE-Thierry/BYUMA-FT** — the GitHub account
+the Vercel project belongs to, which is why that copy exists. Push to its
+`main` and Vercel rebuilds; the workflow there also publishes a GitHub
+Pages copy at **https://ishimwe-thierry.github.io/BYUMA-FT/**, because the
+build takes its base path from whatever the repository is called. Keeping
+the two repositories the same is one push:
+
+```
+git push https://github.com/ISHIMWE-Thierry/BYUMA-FT.git main
+```
 
 `.vercelignore` keeps the design references, the layout screenshots and
 the emulator logs out of the upload — they are large and the build has no
